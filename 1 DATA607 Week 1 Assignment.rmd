@@ -1,0 +1,138 @@
+---
+title: "DATA607 Week 1 Assignment"
+author: "Christian Thieme"
+date: "1/29/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# **Where Does America Stand on Gun Policy?**
+
+### **Overview of the Data**
+
+This dataset contains polling results (in the form of "percent in favor") for 8 questions related to gun policy in the US. The dataset was gathered by FiveThirtyEight as part of their article [Do You Know Where America Stands On Guns?](https://projects.fivethirtyeight.com/guns-parkland-polling-quiz/). The original dataset can be found on their GitHub [here](https://github.com/fivethirtyeight/data/blob/master/poll-quiz-guns/guns-polls.csv). 
+
+The questions from the poll are as follows: 
+
+
+1. What share of Americans support raising the minimum purchase age to 21?
+2. What share of Americans support arming teachers?
+3. What share of Americans support blocking gun sales to people with a history of mental illness?
+4. What share of Americans support background checks for all gun purchases?
+5. What share of Americans support stricter gun laws?
+6. What share of Americans support banning assault weapons?
+7. What share of Americans support banning high-capacity ammunition magazines?
+8. What share of Americans support outlawing all guns?
+
+The data was gathered through polls done by CNN, NPR, CBS Nes, YouGov, and several others. The timing when these polls were taken is also important to understand. These polls were completed shortly after the school shooting on Febuary 14, 2018 in Parkland, Florida. The first poll began on February 20, 2018 and ended on February 23, 2018 and the latest poll began on March 3, 2018 and ended on March 6, 2018. As this data was gathered only several weeks after a tragic school shooting, gun policy was at the forefront of many American's minds. 
+
+The answers to each of the above questions is broken in to three columns, the percent of Republicans in favor, the percent of Democrats in favor, and an average percent of those in favor (calculated as an average of the next two columns). One other item to note is that these polls were conducted among registered voters. 
+
+### **Analysis**
+
+Let's jump in to cleaning and analyzing this data and see if we can determine how Americans were feeling about gun policy after the shooting. We'll start by importing the necessary libraries and reading the CSV file from FiveThirtyEight's [GitHub](https://raw.githubusercontent.com/fivethirtyeight/data/master/poll-quiz-guns/guns-polls.csv).
+
+
+```{r message=FALSE, warning=FALSE}
+library(readr)
+library(dplyr)
+library(tidyr)
+library(ggplot2)
+library(RColorBrewer)
+```
+
+
+
+```{r message=FALSE, warning=FALSE}
+#Reading in file from fivethirtyeight
+guns <- readr::read_csv('https://raw.githubusercontent.com/fivethirtyeight/data/master/poll-quiz-guns/guns-polls.csv')
+
+```
+
+Let's take a look at the first couple rows of this data frame to get a feel for the data: 
+
+```{r}
+head(guns)
+```
+
+In looking at the above dataset, there are a few columns that we can get rid of right away that won't be pertinent to the analysis that we will be performing. We will remove the "Start", "End", and "URL" columns which indicate the start date, end date, and web address to the poll results, respectively. 
+
+```{r}
+new_guns <- guns %>% dplyr::select(-"Start",-"End", -"URL")
+head(new_guns)
+```
+
+Next, we will rename some of the column names to make them easier to understand:
+
+```{r}
+new_guns <- new_guns %>% rename(Poll_Question =Question, Population_Polled = Population, Avg_Support_Perc = Support, Republican_Perc_Support = `Republican Support`, Democratic_Perc_Support = `Democratic Support`)
+names(new_guns)
+```
+
+Now that we've cleaned our data, let's paint the picture of what America was thinking. It appears that the overarching question asked during these polls was "What share of Americans support stricter gun laws?". Let's start there. For the purposes of this first visual, we'll adjust our data frame a little bit to get all of the percentages into one column:
+```{r fig.height = 5, fig.width = 8}
+#altering data frame
+support_type <- new_guns %>% dplyr::filter(Poll_Question == "stricter-gun-laws") %>%tidyr::gather(key = "support_classification", value = Support_Percentage, Avg_Support_Perc, Republican_Perc_Support,  Democratic_Perc_Support) %>% dplyr::group_by(support_classification) %>% summarize(Support_Percentage = round(mean(Support_Percentage),2))
+
+ggplot(data = support_type) + 
+ aes(x = support_classification, y = Support_Percentage, fill = support_classification ) + 
+  geom_bar(stat = "identity") +
+  geom_text(aes(label = Support_Percentage), position=position_dodge(width=0.9), vjust=-0.25) +
+  labs(title = "Percent of Pollsters in Favor of Strictor Gun Policies in the US", x = "Support Classification", y = "Percentage of Support") 
+  
+```
+
+Looking at the above, we can see that on average, 66% of Americans at that time were in support of stricter gun laws. However, you can see a significant divide between Democrats and Republicans which is definitely affecting the average. 
+
+
+Let's now take a look at the spread of these polling results - remember our data points are coming from multiple survey results. We'll do this by looking at boxplots of the same data used for the visual above, only we won't take the average of the values for each category. This will help us get a feel for the median, IQR, and range of those in favor of stricter gun laws based on party. 
+
+```{r}
+support_type_unfiltered <- new_guns %>% dplyr::filter(Poll_Question == "stricter-gun-laws") %>% tidyr::gather(key = "support_classification", value = Support_Percentage, Avg_Support_Perc, Republican_Perc_Support,  Democratic_Perc_Support)
+
+ggplot(data = support_type_unfiltered) + 
+  aes(x = support_classification, y = Support_Percentage) + 
+  geom_boxplot() + 
+  labs("Box Plots of Support Percentages for Increased Gun Control", x = "Support Classification", y = "Percentage of those in Support")
+
+```
+
+Looking at the above boxplots, one thing sticks out prominently - the median value of the Republicans in support of stricter gun laws. This tells me that there is some significant deviation between the results of each polling agency. Does this indicate potential bias? In addition, the Democratic support percentages are so much higher than the Republican's support percentage, that looking at an average sentiment is almost misleading (which is the way    FIveThirtyEitht displays them). 
+
+
+Let's now take a look at some of the responses for the other questions. For a general understanding of overall support of stricter gun laws, we'll visualize the average support percentage. The labels on the chart below are associated with the following questions: 
+
+
+1. "age 21" = What share of Americans support raising the minimum purchase age to 21?
+2. "arm-teachers" = What share of Americans support arming teachers?
+3. "background-checks" = What share of Americans support background checks for all gun purchases?
+4. "ban-assualt-weapons" = What share of Americans support banning assault weapons?
+5. "ban-high-capacity-magazines" = What share of Americans support banning high-capacity ammunition magazines?
+6. "mental-health-own-gun" = What share of Americans support blocking gun sales to people with a history of mental illness?
+7. "repeal-2nd-amendment" = What share of Americans support outlawing all guns?
+8. "stricter-gun-laws" = What share of Americans support stricter gun laws?
+
+```{r fig.height = 5, fig.width = 16}
+guns_questions <- new_guns %>% 
+  group_by(Poll_Question) %>% 
+  summarize(Avg_Support_Perc = round(mean(Avg_Support_Perc),2))
+
+ggplot(data = guns_questions) + 
+  aes(x = Poll_Question, y = Avg_Support_Perc, fill = Poll_Question) +
+  geom_bar(stat = "identity") + 
+  geom_text(aes(label = Avg_Support_Perc), position=position_dodge(width=0.9), vjust=-0.25) +
+  theme_minimal()
+```
+
+### **Conclusion**
+
+The chart above indicates that America was in favor of stronger gun policies after the shooting. However, as we discovered, with the Democrat's high percentages in favor of stricter gun laws and the Republican's low percentages, the average may not be a good way to look at this data. 
+
+To extend the analysis, we would really need to look at each party individually (and perhaps even by polling agency) - and based on the polarity we saw in the boxplot, I'm not sure we'd be able to draw any strong conclusions. A better analsysis would be to look at polls on gun policy prior to the shooting and then to compare them to these polls done shortly after the shooting. Based on the results we saw here, I'd be particularly interested to see if the percent of Republican's in favor of stricter gun laws increased after the shooting, or remained relatively stable.  
+
+
+
+
