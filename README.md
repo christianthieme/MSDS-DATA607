@@ -7,6 +7,7 @@ Use the following link to view:
 http://htmlpreview.github.io/?https://github.com/christianthieme/MSDS-DATA607/blob/master/1-DATA607-Week-1-Assignment.html
 
 2. Week 2 Assignment: 
+http://htmlpreview.github.io/?https://github.com/christianthieme/MSDS-DATA607/blob/master/2-Week-DATA607-Assignment.html
 
 
 
