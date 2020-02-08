@@ -1,0 +1,194 @@
+---
+title: "2 Week Assignment DATA607"
+author: "Christian Thieme"
+date: "2/6/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Assignment Week 2 DATA607: SQL and R
+
+### Purpose: 
+
+The purpose of this assignment is three-fold: 
+
+1. To demonstrate the proper creation and population of a SQL database/tables in a MySQL database. 
+2. To show how to access data from SQL directly using R
+3. To demonstrate several methods for dealing with null values in data
+
+For my project, I gathered movie ratings for 6 movies from 5 family members and created a set of normalized tables inside of a schema titled "movie_ratings". Inside the schema I have three tables that I populate using SQL statements. The tables are "friends", "movies", and "ratings". I then tie all of these tables together in a SQL statement that I will call with R. The code for my SQL to generate and populate the schema and tables can be found on my GitHub, [here](https://github.com/christianthieme/MSDS-DATA607/blob/master/2%20Week%20DATA607%20SQL%20file%20to%20load%20tables.sql). 
+
+Now that we've generated our data in SQL and built out our data model, let's bring this data down with R into a data frame. 
+
+Let's first start by importing the libraries we'll need:
+```{r message=FALSE, warning=FALSE}
+library(RMySQL)
+library(tidyverse)
+library(ggplot2)
+library(gridExtra)
+```
+
+
+Now, using R, let's pull the data from the tables we've created into a single data frame and have a look at the first couple rows:
+```{r}
+
+con <- dbConnect(RMySQL::MySQL(), 
+          host = "localhost", 
+          port = 3306,
+          dbname = "movie_ratings", 
+          user = "root",
+          password = "password")
+
+q <- dbSendQuery(con, "SELECT 
+r.rating_id,
+m.movie_name, 
+m.release_year,
+f.friend_first_name,
+f.friend_last_name,
+r.rating
+FROM movie_ratings.ratings r
+LEFT JOIN movie_ratings.movies m ON r.id_movie = m.movie_id
+LEFT JOIN movie_ratings.friends f ON r.id_friend = f.friend_id")
+
+mvr <- fetch(q, n=-1)
+head(mvr)
+
+```
+
+Let's also get a feel for the dimensionality of this data: 
+```{r}
+dim(mvr)
+```
+
+
+One of the first things we want to do is understand if we have nulls within our data. We can look at that with the below code: 
+```{r}
+colSums(is.na(mvr))
+
+```
+
+Based on the above, it looks like there are 7 rows in the rating column that don't have values. Let's get a look at these rows and see what they are:
+```{r}
+nas <- mvr %>% filter(is.na(rating))
+nas
+```
+
+Based on the rows above that contain nulls, it looks like these are columns where a person did not respond to the survey. In our analysis, it probably makes sense to drop these rows entirely, because the person has not seen the movie, meaning there really should not be a rating or even a row for that movie associated with that person. We have a couple options, we can drop the rows entirely, tell R to ignore the nulls, or we can impute a value for the missing value. Let's first show how we can exclude nulls from our calculations before we drop the rows entirely or impute values. To show this, let's calculate an average rating per movie. 
+
+```{r}
+avg_excl_nulls <- mvr %>% group_by(movie_name) %>% summarize(avg_rating = mean(rating, na.rm = TRUE)) %>% arrange(desc(avg_rating))
+avg_excl_nulls 
+```
+
+The above is what we would consider the true average ratings for each movie. We were able to calculate this value by telling R to remove the nulls from the calculation with the "na.rm = True" argument in our code. Let's now take a look at imputing a value for our missing values and see how that affects the overall average. There are a couple ways we could do this, we could use the median rating of the movie as our imputed value for each movie, or we could use the median rating of each user to impute our missing values. We use the median here as opposed to the average so as not be be skewed by outliers. In this case, it probably makes more sense to impute our value off of the median rating of the movie. Let's move forward with that approach: 
+
+```{r}
+jm <- mvr %>% filter(movie_name == "Just Mercy") %>% summarize(median(rating, na.rm = TRUE))
+sw <- mvr %>% filter(movie_name == "Star Wars: Episode IX - The Rise of Skywalker") %>% summarize(median(rating, na.rm = TRUE))
+tlk <- mvr %>% filter(movie_name == "The Lion King") %>% summarize(median(rating, na.rm = TRUE))
+gm <- mvr %>% filter(movie_name == "Gemini Man") %>% summarize(median(rating, na.rm = TRUE))
+
+
+imputed <- mvr %>% mutate(rating = replace(rating, movie_name == "Just Mercy" & is.na(rating) == TRUE, jm[1,1])) %>% 
+  mutate(rating = replace(rating, movie_name == "Star Wars: Episode IX - The Rise of Skywalker" & is.na(rating) == TRUE, sw[1,1])) %>%
+  mutate(rating = replace(rating, movie_name == "The Lion King" & is.na(rating) == TRUE, tlk[1,1])) %>% 
+  mutate(rating = replace(rating, movie_name == "Gemini Man" & is.na(rating) == TRUE, gm[1,1]))
+
+colSums(is.na(imputed))
+
+
+```
+
+Looking at the above, it looks like we were able to successfully impute and fill the null values with the median rating for each movie. 
+
+
+Let's now take a look at how our imputations affected the averages: 
+
+```{r}
+imputed_avg <- imputed %>% group_by(movie_name) %>% summarize(avg = mean(rating, na.rm = TRUE)) %>% arrange(desc(avg))
+imputed_avg
+```
+Just in eyeballing these, it looks like using the median to impute our values only changed the averages very slightly for a couple of the movies. To get a better feel for this, let's graph these values next to each other and see how they compare:
+```{r fig.height = 5, fig.width = 13}
+avg_non_impute <- ggplot(data = avg_excl_nulls) +
+  aes(x = reorder(movie_name, avg_rating), y = avg_rating, fill = movie_name) + 
+  geom_bar(stat = "identity") +
+  coord_flip() + 
+  labs(title = "Averages Excluding Nulls") + 
+  xlab(" ") + 
+  ylab(" ") +
+  theme(axis.title.x=element_blank(),
+        axis.text.x=element_blank(),
+        axis.ticks.x=element_blank()) +
+  theme(legend.position='none')
+  
+avg_impute <- ggplot(data = imputed_avg) +
+  aes(x = reorder(movie_name, avg), y = avg, fill = movie_name) + 
+  geom_bar(stat = "identity") + 
+  labs(title = "Averages using Imputed Values") + 
+  coord_flip() +
+  xlab(" ") +
+  ylab("Average Rating") +
+  theme(legend.position='none')
+  
+
+gridExtra::grid.arrange(avg_non_impute, avg_impute, ncol = 1)
+```
+As you can tell, adding the imputed values didn't really change the averages much. That in part, is because our population is so small and the number of values to be imputed was fairly small as well. 
+
+Now, let's take a look at the last method to get rid of nulls. Instead of doing the above, we could have just dropped the rows that contained nulls. Based on our dataset, this is probably a good option since nulls actually mean that a person didn't rate a movie. Depending on your dataset and the values that are missing, this can be a good idea, but you need to really understand the risks of what you are losing when you remove rows with null values. In our case, we aren't losing other measurements, we are in fact basically just removing blank rows since these rows represent blank/empty ratings. Let's go ahead and drop the nulls from our original data frame and then check for nulls: 
+```{r}
+mvr <- mvr %>% drop_na()
+
+colSums(is.na(mvr))
+
+```
+Looking at the above, it looks like we were able to successfully remove all the null values from our data set. 
+
+
+Having removed the null values, and looking at the average rating of each movie above, let's now take a look at the distribution of values within these ratings for each movie: 
+```{r fig.height = 6, fig.width = 10, message=FALSE, warning=FALSE}
+theme_set(theme_classic())
+
+ggplot(data = mvr) +
+  aes(x = movie_name, y = rating, fill = movie_name) +
+  geom_boxplot() +
+  geom_dotplot(binaxis='y', 
+               stackdir='center', 
+               dotsize = .75, 
+               fill="black") +
+  coord_flip() +
+  labs(title = "Boxplots of Movie Ratings") +
+  xlab(" ") +
+  theme(legend.position='none')
+    
+```
+Within the boxplots above, we also add the dots so that we can see where each of the 35 ratings fall. In general, it appears that our raters enjoyed all of the movies with the exception of Gemini Man and The Lion King. Does this mean that our raters rate most movies high in general (are they easily entertained)? Or perhaps these movies were highly rated by the general public and these raters are just following suit. Let's take a look at the distribution of each rater's ratings to see if we can see any trends:
+
+
+```{r fig.height = 6, fig.width = 10, message=FALSE, warning=FALSE}
+theme_set(theme_classic())
+
+ggplot(data = mvr) +
+  aes(x = friend_first_name, y = rating, fill = friend_first_name) +
+  geom_boxplot() +
+  geom_dotplot(binaxis='y', 
+               stackdir='center', 
+               dotsize = .75, 
+               fill="black") +
+  coord_flip() +
+  labs(title = "Boxplots of Rater's Ratings") +
+  theme(legend.position='none') + 
+  xlab(" ")
+
+```
+
+In looking at the chart above, it does appear that both Janis and Royce tend to have higher ratings overall than the other three raters. 
+
+How do our averages compare overall to the general public? In reviewing several movie rating agencies, it appears that the averages we computed here fall closely in line with what the general public thought about each movie. To extend this analysis, we could gather this data from each rating agency and add it to our movie_rating schema and use it to compare against what we have shown above. 
+
+## Conclusion
+In this assignment, we were able to demonstrate how to create a normailzed data structure in SQL, how to pull SQL data with R, and several ways to deal with null values in our data. 
