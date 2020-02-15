@@ -1,0 +1,132 @@
+---
+title: "3 Week Assignment DATA607"
+author: "Christian Thieme"
+date: "2/13/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+```
+
+## Week 3 Assignment - R Character Manipulation 
+
+The below assignment is geared toward jumping into character extraction/manipulation with R using Regular Expressions. The examples show how to use regex in a variety of ways such as identifying rows from a dataframe containing certain words, extracting key data from messy datasets, as well as using capture groups, lookbacks, and more to solve for tricky scenarios with word extraction. 
+
+
+**Question 1: Using the 173 majors listed in fivethirtyeight.com’s College Majors [dataset](https://fivethirtyeight.com/features/the-economic-guide-to-picking-a-college-major/), provide code that identifies the majors that contains either "DATA" or "STATISTICS"**
+
+We will start by importing data from fivethirtyeight.com's College Major [dataset](https://raw.githubusercontent.com/fivethirtyeight/data/master/college-majors/majors-list.csv) off of their GitHub.
+
+```{r message=FALSE, warning=FALSE}
+library(tidyverse)
+majors <- readr::read_csv('https://raw.githubusercontent.com/fivethirtyeight/data/master/college-majors/majors-list.csv')
+head(majors)
+```
+
+```{r}
+major_col <- str_to_upper(majors$Major)
+data_stat <- major_col[str_detect(majors$Major, pattern = "DATA|STATISTICS?")]
+data_stat
+```
+
+**Question 2: Write code that transforms the data below:**
+
+[1] "bell pepper"  "bilberry"     "blackberry"   "blood orange"
+
+[5] "blueberry"    "cantaloupe"   "chili pepper" "cloudberry"  
+
+[9] "elderberry"   "lime"         "lychee"       "mulberry"    
+
+[13] "olive"        "salal berry"
+
+**Into a format like this:**
+
+c("bell pepper", "bilberry", "blackberry", "blood orange", "blueberry", "cantaloupe", "chili pepper", "cloudberry", "elderberry", "lime", "lychee", "mulberry", "olive", "salal berry") **
+
+```{r  message=FALSE, warning=FALSE}
+raw_data <- '[1] "bell pepper"  "bilberry"     "blackberry"   "blood orange"
+
+[5] "blueberry"    "cantaloupe"   "chili pepper" "cloudberry"  
+
+[9] "elderberry"   "lime"         "lychee"       "mulberry"    
+
+[13] "olive"        "salal berry"'
+
+string <- str_extract_all(raw_data, pattern = '[A-Za-z]+.?[A-Za-z]+')
+
+new_string <- str_c(string, collapse = ", ")
+
+writeLines(new_string)
+
+```
+
+**Question 3: Describe, in words, what these expressions will match:**
+
+1. (.)\1\1
+
+*This expression will match any character (including spaces) EXCEPT a new line, repeated 3 times in a row. This expression IS case sensitive.*
+
+2. "(.)(.)\\2\\1"
+
+*This expression will match any character and the character directly after it that are then in reverse order directly after that second character. By default, this also works if there are four of the same character in a row. Examples would be: 1221, agga, .11. , [0000]. This expression IS case sensitive*
+
+3. (..)\1
+
+*This expression will match any two characters that are repeated 1x. For example, 2020, [0[0, as well as cases with spaces inbetween letters like this* 
+*(p p ). This regex is case sensitive as well.* 
+
+4. (.).\\1.\\1
+
+*This expression will match any character followed by another character of any kind (except new line) followed by the first character from the capture group followed by any character (except a new line) followed by the first character from the capture group again. An example would be 12131, acaba, pipip, and &u&u&. Expression is case sensitive.*
+
+5. (.)(.)(.).*\\3\\2\\1
+
+*This expression will match any three characters (except new lines) followed by any number of characters (could also be no character), with the first three characters then in reverse order. Example would be 123asdf321, aaabcaaa, simmis, 123321, 1230321, and %^#gh#^%*
+
+
+**Question 4: Construct regular expressions to match words that:**
+
+1. Start and end with the same character.
+
+```{r}
+#The below code will ignore case, so if the first letter is capitalized and the last letter is not, it still counts as a match. Also works with characters other than just alphanumeric.
+
+test_case <- c("plump", "kayak", "Comic", "Jordan", "Xerox", "1221", "2020")
+
+pattern <- "(?i)\\b(.).*\\1\\b"
+
+results <- test_case[str_detect(test_case, pattern)]
+results #should return plump, kayak, Comic, Xerox, 1221
+```
+
+
+2. Contain a repeated pair of letters (e.g. "church" contains "ch" repeated twice.)
+
+```{r}
+#only solving for repeated LETTERS here as the question says (not digits). Solving for any repeated letters, these letters can be the same letter or different letters. The case below will capture cases like church where the letters are not next to each other as well as boohoo which are the same letter and are next to each other. Also solving for case issues.
+
+test_case_2 <- c("church", "Fliefl", "praxlpr", "food", "feed", "sammsa", "2020", "foodood", "fish", "frog", "churcha", "achurcha", "Boohoo")
+
+pattern_2 <- "\\b(?i)[a-zA-z]*([a-zA-z]{2})[a-zA-z]*\\1[a-zA-z]*\\b" 
+
+results_2 <- test_case_2[str_detect(test_case_2, pattern_2)]
+results_2  #should return church, Fliefl, praxlpr, sammsa, foodood, churcha, achurcha, Boohoo
+
+```
+
+3.Contain one letter repeated in at least three places (e.g. "eleven" contains three "e"s.)
+
+```{r}
+#The case below will solve for any word that has a LETTER, as the question specifies, in any location (not solving for digits). So will solve for cases like eleven where the letters are seperated as well as between where some of the letters are next to each other.
+
+test_case_3 <- c("eleven", "between", "church", "bread", "fish", "pilpilpil", "12121")
+
+pattern_3 <- "\\b.*([a-zA-z]).*\\1.*\\1.*\\b"
+
+results_3 <- test_case_3[str_detect(test_case_3, pattern_3)]
+results_3
+
+```
+
