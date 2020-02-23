@@ -1,0 +1,182 @@
+---
+title: "1 Project DATA607"
+author: "Christian Thieme"
+date: "2/17/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Project 1: Chess Tournament Data
+
+In this project we will take a raw text file containing the results of a chess tournament and extract key infomration from the file and perform some cacluations. What makes this project particularly challenging is that each entry in the file (a single chess player) has data points spanning two rows. Our task will be to find a way to extract the information that we need so that we can create a CSV file where all of the data that we want for an entry, including data we will calculate, is on one row. 
+
+Here is a look at how the data in the text file is organized: 
+![Chess Tournament .txt file](C:\Users\chris\OneDrive\Master Of Data Science - CUNY\Spring 2020\DATA607\Week 4 - 2-17-2020\text_file_img.png)
+
+
+We start by loading the necessary libraries: 
+```{r message=FALSE, warning=FALSE}
+library(readr)
+library(stringr)
+library(dplyr)
+library(ggplot2)
+```
+
+
+Next, we will read the text file with the read_delim function from the readr package into a data frame (tibble). The text file is being stored in my GitHub [here](https://raw.githubusercontent.com/christianthieme/MSDS-DATA607/master/tournamentinfo.txt). We will also take a look at the first several rows to get a feel for the data.
+```{r message=FALSE, warning=FALSE}
+url <- "https://raw.githubusercontent.com/christianthieme/MSDS-DATA607/master/tournamentinfo.txt"
+chess <- readr::read_delim(url, delim = "\\|")
+head(chess)
+
+```
+
+Now that we have the data in a data frame, we can begin to work with the data. We can index the data frame by using code like the demonstration below. Here we have indexed to look at the first two rows of the data, which actually makes up a single entry (each entry is made of two rows of data). 
+
+```{r}
+chess[c(4:5), 1]
+```
+
+We will use the same process of indexing from above to index the chess data frame so that we are only evaluating rows after the header rows. Since each entry in the data is made of two rows and the data is fairly structured, it makes sense to use regular expressions to extract this data. To do this, we will use the str_extract_all function from the stringr library. This function allows us to pass in a string (input vector) and then to pass it a pattern as a regular expression. The function will then use the pattern to find matches within the string it was passed and return a LIST of character vectors. We will then use the unlist function from base R to change the list to a vector, so that we can use the individual vectors to create a data frame. 
+
+```{r message=FALSE, warning=FALSE}
+
+#end_player_number (ranking)
+numbers <- stringr::str_extract_all(chess[c(4:nrow(chess)),1], "[0-9]{1,2}(?=\\s\\|)")
+number <- base::unlist(numbers)
+
+#player
+players <- stringr::str_extract_all(chess[c(4:nrow(chess)),1], "\\b[A-Z\\s-]{5,}\\b")
+player <- base::unlist(players)
+
+#state
+states <- stringr::str_extract_all(chess[c(4:nrow(chess)),1],"([A-Z]{2})(?=\\s\\|)")
+state <- base::unlist(states)
+
+#totals
+totals <- stringr::str_extract_all(chess[c(4:nrow(chess)),1], "[0-9]\\.[0-9]")
+total <- base::unlist(totals)
+
+#pre_rating
+pre_ratings <- stringr::str_extract_all(chess[c(4:nrow(chess)),1], "(?<=R:\\s|R:\\s\\s)[0-9]+")
+pre_rating <- base::unlist(pre_ratings)
+
+#post_rating
+post_ratings <- stringr::str_extract_all(chess[c(4:nrow(chess)),1], "(?<=->|->\\s)[0-9]+")
+post_rating <- base::unlist(post_ratings)
+
+#combining into dataframe
+chess_df <- data.frame(Player_Number = number, Player_Name = player, Player_State = state, Total_Pts = as.numeric(total), Player_Pre_Rating = as.numeric(pre_rating), Player_Post_Rating = as.numeric(post_rating))
+
+head(chess_df)
+```
+
+As you can see from the first couple rows of the data frame above, I was able to extract the data we are interested in, regardless of the fact that each entry spans two rows. Now, in our current dataframe, the data has been organized so that each row makes up a single player in the tournament.
+
+Now for the challenge, as you can see in the image below, for each player in the tournament, we are given columns "Round 1" - "Round 7". These columns indicate their opponent in each of the matches during the tournament (player number is highlited in yellow and corresponds to the player number on the far left of the image, i.e. Gary Hua is player 1). We are interested in cacluating the average pre-tournament rating of the opponents each player played during the tournament (pre-tournament rating is indicated by the figure circled in red). We can calculate this for each player by extracting the opponent's player numbers (from columns "Round 1" - "Round 7"), and then using those numbers to find each of their opponents pre-tournament rating. Finally once we have the pre-tournament ratings of all the opponents a single player faced, we will average that rating and place it in a new column in our data frame to be exported in our final CSV file. 
+![Chess Tournament .txt file highlighted](C:\Users\chris\OneDrive\Master Of Data Science - CUNY\Spring 2020\DATA607\Week 4 - 2-17-2020\highlighted_text_img.jpg)
+
+The below code executes what was described above by utilizing a for-loop. For each line of the data frame (I'm actually looking at every 3rd line because of how the data is organized), I use str_extract_all with a regex pattern to extract the opponent numbers. Once they are extracted I add them to a vector. Once i've extracted all of the opponent numbers from each line and have those numbers in a vector, I loop through the vectors I've created, change the data type to numeric and then average the values within each vector to return a single, average value for the opponents' pre-tournament ratings. This average value is then added to a vector so that it can be added to our chess_df as a new column. 
+
+```{r}
+played <- vector()
+
+chess_adjust <- chess[c(4:nrow(chess)),1]
+for (i in seq(from = 1, to = nrow(chess_adjust), by = 3)) {
+  played_against <- str_extract_all(chess_adjust[c(i), 1], "(?<=[A-Z]\\s\\s|[A-Z]\\s\\s\\s)[0-9]{1,2}(?=\\|)") 
+  played <- c(played, played_against)
+}
+
+
+avg_pre_ratings <- vector()
+for (i in 1:length(played)) {
+  values <- as.numeric(unlist(played[i]))
+  avg <- mean(chess_df$Player_Pre_Rating[c(values)]) 
+  avg_pre_ratings <- c(avg_pre_ratings, avg)
+}
+
+```
+
+The last step in our cleaning process is to add our new calculated column to our chess_df. Once we've done this, we'll look at the first several rows to make sure everything is working as expected. 
+
+```{r}
+chess_df$Avg_Pre_Chess_Rating_of_Opp = avg_pre_ratings 
+
+head(chess_df)
+```
+
+Everything looks good! Before exporting this dataset, let's add a new column called Rating_Change to look at how the player's ratings changed during the tournament. 
+
+```{r}
+chess_df <- chess_df %>% mutate(Rating_Change = Player_Post_Rating - Player_Pre_Rating)
+head(chess_df)
+
+```
+
+
+Let's export this new, cleaned data set to CSV so that it can be more easily consumed by others later. I'll export this file to a folder in my OneDrive:
+
+```{r}
+# writing to CSV
+write_csv(chess_df, "C:/Users/chris/OneDrive/Master Of Data Science - CUNY/Spring 2020/DATA607/Week 4 - 2-17-2020/player_data.csv")
+```
+
+## Analysis
+
+Before ending this exercise, I'd like to investigate a question I've had since beginning this project:  
+
+1. Which players post ratings were significantly improved by competing in this tournament? 
+
+To answer the above question, I should note that I am specifically interested in those who's post tournament rating increased significantly as compared to their pre tournament rating - not necessarily their ending position within the rankings. 
+
+Let's first take a look at a box plot of the changes in ratings (calculated as Player_Post_Rating - Player_Pre_Rating) to see if we can see any outliers to focus our analysis on. 
+
+```{r fig.height = 5, fig.width = 5}
+ggplot(data = chess_df) + 
+  aes(x = " ", y = Rating_Change) + 
+  geom_boxplot() + 
+  labs(title = "Outlier Analysis of Rating Changes")
+```
+
+As expected, there are several individuals who's scores increased significantly after this tournament. Let's see if we can spot any common themes with these individuals. To do this, we'll first narrow down our dataset to only look at individual's who's "Rating_Change" is greater than Q3 + 1.5 x the IQR.
+
+
+```{r}
+third_q <- quantile(chess_df$Rating_Change, .75)[[1]]
+iqr <- IQR(chess_df$Rating_Change)
+
+outliers <- chess_df %>% filter(Rating_Change > third_q + (1.5*iqr)) %>% arrange(desc(Rating_Change)) 
+outliers
+```
+
+From looking at the above 7 rows, a couple items stick out to me just having surveyed the data. First, besides perhaps Dakshesh Daruri, most of the individuals appear to have a "average" to "below average" pre rating (the word average here is more meant to denote a general middle (median) for the data as opposed to the calculated average). Second, the average pre rating of their opponents seem to be a bit higher than the average. Let's see if we can confirm some of these suspisions with some boxplots. 
+
+
+```{r}
+ggplot(chess_df) + 
+  aes(x = " ", y = Player_Pre_Rating) + 
+  geom_boxplot() + 
+  labs(title = "Boxplot of Pre Player Rating Distribution (entire population):")
+```
+
+In looking at the chart above, it looks like the median pre rating is ~1400. Again, looking at the pre-ratings of our outliers, it appears that five of them are quite a bit below the median and two are right near the median. 
+
+
+Next, let's take a look at the distribution of the total population for the average pre chess rating of a player's opponents: 
+
+```{r}
+ggplot(chess_df) + 
+  aes(x = " ", y = Avg_Pre_Chess_Rating_of_Opp) + 
+  geom_boxplot() + 
+  labs(title = "Average Pre Chess Rating of Opponents (entire population)")
+```
+
+Based on the chart above, it looks like the median value for the average pre chess rating of a player's opponents is ~1375. In looking at our outliers, it appears that most of these players played a host of players who's average pre chess rating was noteably higher than the median (closer to higher than 75% of the entire distribution).  
+
+ 
+## Conclusion
+
+So what can we conclude from this? Just by looking at the analysis above, for several of the players (two of the players appear to have drastically low scores when entering this tournament - the may be newer players), it appears we may have a case of underdogs going on. It appears that these players entered the tournament with somewhat low initial rankings and were matched up against opponents with rankings that were, on average, higher than the median value for the entire distribution (some quite a bit higher). This means they played multiple matches against individuals who had high pre rankings and won. To verify this and to extend the analysis, we'd need to go back to the initial data set and extract data about wins, draws, and losses for each player and their opponent. In doing that, I think we'd be able to conclude with confidence that my hypothesis is correct.  
