@@ -12,4 +12,7 @@ http://htmlpreview.github.io/?https://github.com/christianthieme/MSDS-DATA607/bl
 3. Week 3 Assignment: 
 http://htmlpreview.github.io/?https://github.com/christianthieme/MSDS-DATA607/blob/master/3-Week-Assignment-DATA607.html
 
+4. Week 4 Project 1: 
+http://htmlpreview.github.io/?https://github.com/christianthieme/MSDS-DATA607/blob/master/1-Project-DATA607---Data-Analysis.html
+
 
