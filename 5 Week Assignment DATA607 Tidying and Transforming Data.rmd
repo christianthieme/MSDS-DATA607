@@ -1,0 +1,209 @@
+---
+title: "Week 5 Assignment DATA607"
+author: "Christian Thieme"
+date: "2/25/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Tidying and Transforming Data with tidyr
+
+### Introduction: 
+
+The purpose of this assignment is to:
+
+1. Demonstrate how to transform data between wide and long formats with tidyr
+2. Demonstrate how to tidy messy/unitdy data using tidyr - single entries on multiple lines and missing data
+3. Perform data analysis using ggplot
+
+Our dataset includes arrival delays for two airlines, AM West and Alaska Airlines, across five locations. See the screenshot included below of the dataset. While the dataset isn't large, it does have some structural issues that will make analysis difficult. First, it's in a wide format. Second, each entry is broken in to two rows, on time and delayed. Lastly, information that we can visually see because of the current structure is not actually present in the data (such as airline name in the first column on the rows containing information on delayed flights). 
+
+![](C:\Users\chris\OneDrive\Master Of Data Science - CUNY\Spring 2020\DATA607\Week 5 Feb 24\flights_data.jpg)
+
+Using the data set above, we will perform an analysis to compare the arrival delays for the two airlines. As mentioned above, to perform any type of analysis, we'll first need to tidy this data to get it into a more consumable format.
+
+### Data Cleaning
+
+Let's start by loading some libraries:
+
+```{r message=FALSE, warning=FALSE}
+library(tidyverse)
+library(gridExtra)
+```
+
+
+Next, we'll load the data in the exact form as shown above. The data is being stored in a CSV file in my GitHub and can be accessed [here](https://raw.githubusercontent.com/christianthieme/MSDS-DATA607/master/Week%205%20Assignment%20Dataset%20Tidying%20and%20Transforming%20Data.csv).
+
+
+```{r message = FALSE}
+flight_info <- readr::read_csv("https://raw.githubusercontent.com/christianthieme/MSDS-DATA607/master/Week%205%20Assignment%20Dataset%20Tidying%20and%20Transforming%20Data.csv")
+```
+
+Now that we've loaded the data, let's take a look at its current structure as a data frame in r.  
+
+```{r}
+flight_info
+```
+
+As mentioned above, we can see right away that we've got some problems. Let's see what we can do to clean this data set up. To tackle the problems we mentioned above, let's start by gathering the data. The purpose of gathering is to take a wide data set and transform it into a long data set. This will take the location columns (Los Angeles, Phoenix, San Diego, San Francisco, Seattle) and move them in to two columns - one with the location names and one with the corresponding values. When we perfrom this gathering, the missing values we described above will persist in the data. We will use the fill function from tidyr to fill missing values with the value that precedes it. Lastly, our original data set didn't include names for the first two columns, so we'll rename the column names that were generated, to "airline" and "status", respectively. 
+
+```{r}
+clean_flights <- flight_info %>% 
+              tidyr::gather(`Los Angeles`, `Phoenix`, `San Diego`, `San Francisco`, `Seattle`, key = "location", value = "count", na.rm = TRUE) %>% 
+              tidyr::fill(X1) %>%
+              dplyr::rename("airline" = "X1", "status" = "X2")
+clean_flights
+```
+
+The data set is now in a suitable format to perform analysis. 
+
+### Analysis
+
+In this analysis, we want to know which airline we should choose if we want to avoid arrival delays. To get a general feel for the airlines, lets take a look at the total number of flights per airline : 
+
+```{r}
+airline_group <- clean_flights %>% group_by(airline) %>% summarize(count = sum(count))
+
+ggplot(data = airline_group) + 
+  aes(x = airline, y = count) + 
+  geom_bar(stat = "identity", fill = "gray29", color = NA) + 
+  geom_text(aes(label = count), vjust = -0.45) + 
+  labs(title = "Total Flights by Airline") + 
+  ylab("Flight Count") + 
+  xlab("Airline") + 
+  theme(
+    panel.background = element_rect(fill = "white", color = NA),
+    axis.text.y = element_blank(), 
+    axis.ticks.y = element_blank(),
+    plot.title = element_text(hjust = 0.5)
+  )
+
+```
+
+In reviewing the chart above, it is clear that AM West has far more flights than Alaska. For our analysis, we are particularly interested in arrival delays for the two airlines. Let's take a look at how many flights were on time and how many had arrival delays for each of the airlines. 
+
+```{r fig.ncol = 2}
+ontime_delay_group <- clean_flights %>% group_by(airline, status) %>% summarize(count = sum(count))
+
+ggplot(data = ontime_delay_group) + 
+  aes(x = airline, y = count, fill = airline) + 
+  geom_col() + 
+  facet_grid(~status) + 
+  geom_text(aes(label = count), vjust = -.25) + 
+  scale_fill_manual(values = c("orchid4", "goldenrod3")) + 
+  ylab("Number of Flights") + 
+  xlab("Airline") + 
+  labs(title = "On Time vs Arrival Delays by Airline") + 
+  theme(
+    panel.background = element_rect(fill = "white", color = NA),
+    axis.text.y = element_blank(), 
+    axis.ticks.y = element_blank(),
+    legend.position =  "none",
+    plot.title = element_text(hjust = 0.50))
+```
+
+Just by looking at the values from the chart above, it appears that AM West has a smaller percentage of arrival delays than does Alaska airlines, but let's confirm this by actually calculating the percent of arrival delays to total flights.  
+
+```{r}
+delayed_flights <- clean_flights %>% filter(status == "delayed") %>% group_by(airline) %>% summarize(delayed = sum(count))
+total_flights <- clean_flights %>% group_by(airline) %>% summarize(total = sum(count))
+
+delayed_perc <- delayed_flights %>% left_join(total_flights, by = "airline") %>% mutate(percent_delayed = delayed / total) 
+delayed_perc
+```
+
+```{r}
+ggplot(delayed_perc) + 
+  aes(x = airline, y = percent_delayed) + 
+  geom_col(fill = "grey29") + 
+  geom_text(aes(label = round(percent_delayed,2)), vjust = -0.35) +
+  ylab("Percent") +
+  xlab("Airline") +
+  labs(title = "Percent of Total Arrival Delays by Airline", hjust = .5) + 
+    theme(
+    panel.background = element_rect(fill = "white", color = NA),
+    axis.text.y = element_blank(), 
+    axis.ticks.y = element_blank(),
+    plot.title = element_text(hjust = 0.50))
+```
+
+It looks like our suspicion was correct - in total, a greater percentage of Alaska airline flights have arrival delays as compared to AM West flights. If we were to stop our analysis here, it looks like AM West is the clear choice if you want to avoid arrival delays. Let's see how this plays out for each location. 
+
+```{r}
+delayed_flights_loc <- clean_flights %>% filter(status == "delayed") %>% group_by(airline, location) %>% summarize(delayed = sum(count))
+total_flights_loc <- clean_flights %>% group_by(airline, location) %>% summarize(total = sum(count))
+
+delayed_perc_loc <- delayed_flights_loc %>% left_join(total_flights_loc, by = c("airline" = "airline", "location" = "location")) %>% mutate(percent_delayed = delayed / total) 
+delayed_perc_loc
+```
+
+```{r}
+perc <- ggplot(delayed_perc_loc) + 
+  aes(x = location, y = percent_delayed, fill = airline) + 
+  geom_col(position = "dodge") + 
+  scale_fill_manual(values = c("orchid4", "goldenrod3"), name = "Airline") + 
+  geom_text(aes(label = round(percent_delayed,2)), position = position_dodge(.9), vjust = -.25) +
+  ylab("Percent of Flights Delayed") +
+  xlab("Location") +
+  labs(title = "Percent of of Arrival Delays by Location by Airline", hjust = .5) + 
+    theme(
+    panel.background = element_rect(fill = "white", color = NA),
+    axis.text.y = element_blank(), 
+    axis.ticks.y = element_blank(),
+    plot.title = element_text(hjust = 0.60))
+
+perc
+
+```
+
+The chart above tells a completely different story from what we saw earlier. We can clearly see that AM West has a higher percentage of flights with arrival delays in every location as compared with Alaska Airlines. How is that possible? Well, we saw earlier that AM West had far more flights that Alaska. Perhaps a large number of those flights have a very low percentage of arrival delays. Let's see if we can get a feel for this by stacking the above chart over a chart showing the number of flights from each location. 
+
+```{r fig.height=8, fig.width=10}
+location_group <- clean_flights %>% group_by(airline, location) %>% summarize(count = sum(count))
+
+flights_by_location <- ggplot(data = location_group) + 
+  aes(x = location, y = count, fill = airline) + 
+  geom_col(position = "dodge") + 
+  scale_fill_manual(values = c("orchid4", "goldenrod3"), name = "Airline") +
+  geom_text(aes(label = count), position = position_dodge(.9), vjust = -.25) +
+    labs(title = "Flights by Airline by Location") + 
+  ylab("Flight Count") + 
+  xlab("Location") + 
+  theme(
+    panel.background = element_rect(fill = "white", color = NA),
+    axis.text.y = element_blank(), 
+    axis.ticks.y = element_blank(),
+    plot.title = element_text(hjust = 0.5))
+
+gridExtra::grid.arrange(perc, flights_by_location,  ncol = 1)
+```
+
+Seeing the charts stacked like this makes it pretty clear what is happening. A majority of AM West's flights are coming out of Phoenix which have it's lowest rate for arrival delays. This would definitely bring their overall rate of arrival delays down. In contrast, for Alaska Airlines, Seattle is the location with the most amount of flights and it has it's second highest rate of arrival delays, which would bring it's overall arrival delay rate up. 
+
+Let's quickly visualize what percentage of flights are coming from each location to add validity to what we described above. 
+
+```{r}
+ggplot(location_group) + 
+  aes(x = airline, y = count, fill = reorder(location, count)) + 
+  geom_col(position = "fill") +
+  scale_fill_manual(values = c("grey24", "dodgerblue4", "deepskyblue2", "coral3", "lightsteelblue4"), name = "Location") + 
+  scale_y_continuous(labels = scales::percent) +
+  labs(title = "Percent of Total Flights by Location") + 
+  xlab("Airline") + 
+  ylab("Percent") + 
+  theme(
+      panel.background = element_rect(fill = "white", color = NA),
+      plot.title = element_text(hjust = 0.65)) + 
+  coord_flip()
+ 
+```
+
+By looking at the percentage of flights coming from each location, it looks like Phoenix makes up about ~72% of AM West's flights. As I mentioned above, for AM West, Phoenix only has an 8% arrival delay rate, which is the lowest of any of it's locations. This weighting would significantly impact the overall arrival delay rate and bring it down. On the other hand, it appears that Seattle makes up over half of Alaska's flights. For Alaska, Seattle has a 14% arrival delay rate. This means that over half of Alaska's flights are being weighted at 14% where 75% of AM West's flights are being weighted at 8%. This would explain what we saw earlier where AM West had an overall lower rate of arrival delays than Alaska airlines, but actually has a higher delay rate in each location. 
+
+### Conclusion
+
+In the beginning of this analysis, it looked pretty clear that AM West was the airline of choice if you wanted a lower chance of experiencing an arrival delay. However, as I showed by looking at each location, you are actually better off taking an Alaskan flight, because the arrival delay rate is lower in every location. 
+
