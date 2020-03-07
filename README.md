@@ -17,3 +17,6 @@ http://htmlpreview.github.io/?https://github.com/christianthieme/MSDS-DATA607/bl
 
 5. Week 5 Assignment: 
 http://rpubs.com/christianthieme/580041
+
+6. Week 6 Project 2:
+https://rpubs.com/christianthieme/582571
