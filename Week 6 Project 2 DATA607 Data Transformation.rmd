@@ -1,0 +1,266 @@
+---
+title: "Project 2 - Data Transformation"
+author: "Christian Thieme"
+date: "3/6/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Introduction
+
+The purpose of this project is to demonstrate the ability to transform data from various wide formats into a more digestible format for analysis. As part of the project, I will also clean/tidy the data and perform analysis. Below you will see three different data sets that were provided by fellow classmates. In addition to providing the data set, each classmate was asked to suggest analysis that could be completed using the data set. I will show the loading, tidying, and analysis of each dataset below.
+
+First, I'll load the necessary libraries, which will be used accross all three data sets:
+
+```{r message=FALSE, warning=FALSE}
+library(tidyverse)
+```
+
+
+## Dataset 1: Video Games Sales 2019 - Provided by Michael Munguia
+**Requested Analysis to perform:** _"This data could be [...] used to compare genre sales across regions and see if there are any differences/similarities across the globe."_
+
+### Introduction to the Data
+
+This is a dataset that contains video game sales (copies sold) for 2019. As you can see from the screenshot below, the data about sales region (NA_Sales, PAL_Sales, JP_Sales, Other_Sales) are in a "wide" data format. We'll need to "gather" these columns to create just two columns, a key and value pair for sales_location, and sales (copies sold). Having the data in a "long" format will allow us to perform the requested analysis more easily. 
+
+![](C:\Users\chris\OneDrive\Master Of Data Science - CUNY\Spring 2020\DATA607\Week 6\dataset1.jpg)
+
+### Cleaning Up
+
+Let's begin our tidying process by reading in the data and taking a look at the first few rows. The data is in a CSV file on my [GitHub](https://raw.githubusercontent.com/christianthieme/MSDS-DATA607/master/dataset1_video_games_project2.csv). 
+
+
+```{r message=FALSE}
+games <- readr::read_csv("https://raw.githubusercontent.com/christianthieme/MSDS-DATA607/master/dataset1_video_games_project2.csv")
+head(games)
+```
+
+As you can see from the first few rows, the sales region columns are in a "wide" format. To fix that we are going to need to gather those sales region columns into just two columns, a key column and a value column. In doing this, some of the columns will become obsolete to us for our analysis, such as "Total Shipped" and "Global Sales", so we'll remove those upfront before gathering. After gathering our data, we notice that there are many nulls in our "sales" value. This is because many of the games in this particular data set do not have regional sales information. Since our analysis specifically asks to look at regional sales data, we'll go ahead and exclude these null values from our analysis. As the last step of our cleaning process, we'll rename the region names to something more understandable (i.e. NA_Sales = North America).
+
+```{r}
+games_gathered <- games %>% dplyr::select(-Total_Shipped, -Global_Sales) %>%
+  tidyr::gather(NA_Sales, PAL_Sales, JP_Sales, Other_Sales, key = "sales_location", value = "sales") %>%
+  filter(!is.na(sales)) %>%
+  mutate(sales_location = ifelse(sales_location == "NA_Sales", "North America", 
+                                 ifelse(sales_location == "PAL_Sales", "Europe", 
+                                        ifelse(sales_location == "JP_Sales", "Japan", "Other"))))
+
+games_gathered 
+  
+```
+
+### Requested Analysis
+
+Now that our data set is in a "long" format, we can move forward with the requested analysis. Before looking at the data by region, I'd like to get a feel for how many genres there are, and how many copies are sold for each genre. 
+
+```{r fig.width= 10}
+games_gathered %>% count(Genre) %>% arrange(desc(n)) %>%
+  ggplot() +
+  aes(x = reorder(Genre, n), y = n) + 
+  geom_bar(stat = "identity") + 
+  geom_text(aes(label = n), hjust = -.15) + 
+  labs(title = "Copies of Games Sold by Genre (in millions)") + 
+  xlab("Genre") +
+  ylab("") + 
+  theme(
+    panel.background = element_rect(fill = "white", color = NA),
+     axis.ticks.y = element_blank(),
+     
+    axis.text.x = element_blank(),
+    axis.ticks.x = element_blank(),
+     plot.title = element_text(hjust = 0.45)
+  ) +
+  coord_flip() 
+```
+
+In looking at the chart above, there are 20 genres, which will make any chart we create later look very busy and hard to understand. Let's narrow our dataset down to the top 10 genres by copies sold.  
+
+```{r message=FALSE}
+top_ten_g <- games_gathered %>% count(Genre) %>% arrange(desc(n)) %>% top_n(10) %>% dplyr::pull(Genre)
+
+
+games_filtered <- games_gathered %>% 
+  filter(Genre %in% top_ten_g)
+
+```
+
+With our new filtered dataset, we are now prepared to take a look at sales by genre by sales region. We'll do this by creating a grouped bar chart.
+
+```{r fig.width= 20, fig.height= 8}
+grouped_genres <- games_filtered %>% dplyr::group_by(sales_location, Genre) %>% summarise(sales = sum(sales))
+
+ggplot(data = grouped_genres) + 
+  aes(x = reorder(sales_location,desc(sales)), y = sales, fill = reorder(Genre, desc(sales))) + 
+  geom_col(position = "dodge", color = "black") + 
+  geom_text(aes(label = round(sales,0)), position = position_dodge(.9), vjust = -.25) + 
+  labs(title = "Copies Sold by Sales Location", fill = "Genre") + 
+  xlab("Sales Location") + 
+  ylab("Copies Sold in Millions") + 
+  theme(
+     panel.background = element_rect(fill = "white", color = NA),
+     plot.title = element_text(hjust = 0.55), 
+     axis.ticks.y = element_blank(),
+     axis.text.y = element_blank(),
+    
+  )
+```
+
+### Conclusion
+
+In the chart above it is very clear that sports games, action games and shooter games are all extremely popular in every geography. They are the top three genres in every location except for Japan. Japan's top genre is role-playing, followed by sports and action. Going in to this analysis, I expected to see much more of a difference between different geographies, however, based on the above, it is pretty clear that for the most part, sports, action, and shooter games will please gamers from every location. 
+
+## Dataset 2: State Marriage Rates 1990, 1995, 1999-2016 - Provided by Gabriel Abreu
+**Requested Analysis to perform:** _"You can group the data by census region or census division. Then organize the rates according to year, changing it from wide data to long data."_
+
+### Introduction to the Data
+
+This data set contains information on state marriage rates by state and years. Rates are based on provisional counts of marriages per 1,000 residing in the area. As you can see by looking at the screenshot below, the data set is in a "wide" format with the years across the top for a single state. We will gather these columns and create two columns, a key and a value. 
+
+![](C:\Users\chris\OneDrive\Master Of Data Science - CUNY\Spring 2020\DATA607\Week 6\dataset2.jpg)
+
+The original data set can be found [here](https://data.world/siyeh/state-marriage-rate). I have created a CSV file containing the data that can be found on my GitHub [here](https://raw.githubusercontent.com/christianthieme/MSDS-DATA607/master/marriage_rates_project2.csv). Let's load the data and then view the first several rows. 
+
+
+### Cleaning Up
+
+```{r message=FALSE, warning=FALSE}
+marriage <- readr::read_csv("https://raw.githubusercontent.com/christianthieme/MSDS-DATA607/master/marriage_rates_project2.csv")
+head(marriage)
+```
+
+Looking at the first few rows above, it looks like our data came in correctly. Let's move forward with gathering the year rows into a "key" column and the values into a "value" column: 
+
+```{r}
+marriage_gather <- marriage %>% gather("2016":"1990", key = "year", value = "rate")
+marriage_gather
+```
+
+### Requested Analysis
+
+Now that our data is in the correct format, we can move forward with our analysis. The student requesting the analysis said we could perform the analysis by looking at either census division or census region. Since census division has more granularity, let's select it to perform our analysis as opposed to census region. The first thing we'll need to do is to group our data frame by census division and year. We'll then summarize our rates by looking at the mean value. Next, we'll visualize our data by census division and by year to see if we can spot any trends.
+
+```{r}
+marriage_grouped <- marriage_gather %>% dplyr::group_by(census_division, year) %>% summarize(rate = mean(rate)) %>% filter(!is.na(census_division))
+
+ggplot(marriage_grouped) + 
+  aes(x = as.numeric(year), y = rate, color = census_division) + 
+  geom_line() +
+  labs(title = "Average Rate of Marriage by Census Division by Year", color = "Census Division") + 
+  ylab("Rate") + 
+  xlab("Year") + 
+     theme_bw() + 
+     theme(
+     panel.border = element_blank(),
+     axis.line = element_line(color = "black"),
+    plot.title = element_text(hjust = 1.8)
+    )
+```
+
+When looking at data with a time element, its often best to look at the data represented as a line chart as we've done above. Looking at the chart above, it is clear that for most of the division, marital rates are decreasing, however, because there are no labels on this chart because of the quantity and grouping of data, it makes it a little hard to see what is happening with the divisions with smaller changes over the years. Let's see if we can visualize this data in a different way to make it a little easier to tell what's going on. 
+
+```{r fig.height=12, fig.width=20, warning=FALSE}
+ggplot(marriage_grouped) + 
+  aes(x = reorder(year, desc(year)), y = rate) +
+  geom_col() + 
+  geom_text(aes(label = round(rate,1)), hjust=-.15) + 
+  labs(title = "Average Rate of Marriage by Census Division by Year") + 
+  ylab("Rates are based on provisional counts of marriages per 1,000 residing in the area") + 
+  xlab("Year") + 
+  ylim(0,25) +
+    theme(
+     panel.background = element_rect(fill = "white", color = NA),
+     axis.ticks.y = element_blank(),
+    axis.text.x = element_blank(),
+    axis.ticks.x = element_blank(),
+     plot.title = element_text(hjust = 0.45)
+  ) + 
+  facet_grid(~census_division) + 
+  coord_flip() 
+  
+```
+
+### Conclusion
+
+Wow. Now the story is clear. Looking just at this chart above we see an incredible trend. The average marriage rate for **EVERY** census division has decreased since 1990. They don't all decrease at the same rate, or at the same time, however, the overwhelming trend and story from this data set is that for every census division, the average marriage rate has declined from 1990 to 2016. Many of the declines are fairly small. The most pronounced decline is in the "Mountian" division, which declined from an average of 21.5% to just around 10%, a decrease of over 11% in 26 years. 
+
+
+## Dataset 3: UNICEF dataset on Under 5 Mortality - Provided by Samuel Bellows 
+**Requested Analysis to perform:** _"The problem is that the year variable is spread out into 65 different columns, 1 for each year, that need to be gathered into 1 column. In order to make this dataset tidy we would gather the year columns into one column until we had a 3 column dataset of country, year, and mortality."_
+
+### Introduction to the Data
+
+This UNICEF data set gives the under 5 mortality for regions across the years 1990-2018. The data, as shown in the screenshot below, is an estimate of the amount of children under the age of 5 that die per 1,000 children. As you can see, this is a "wide" data set, with the years spanning the columns. We will transform this dat set into a "long" data set and gather the years and values into a key, value pair of columns. First, as you can tell, there is quite a bit of cleanup that needs to be done to make this data set useable. The original data set can be found [here](https://data.unicef.org/topic/child-survival/under-five-mortality/). 
+
+![](C:\Users\chris\OneDrive\Master Of Data Science - CUNY\Spring 2020\DATA607\Week 6\dataset3.jpg)
+
+### Cleaning Up
+
+I have downloaded the data set and stored it in my GitHub [here](https://raw.githubusercontent.com/christianthieme/MSDS-DATA607/master/dataset3_under_5_mortality_project2.csv). We will begin cleaning by reading in the data set and removing the top 12 rows which are just explanatory information about the data set. We'll also remove all rows after the 45th row, because the CSV actually has a second data set at the bottom of the file. Next, we'll use REGEX to clean the 12th row, which is the actual header row, and create a vector of cleaned header values and make those the column names. 
+
+```{r message=FALSE, warning=FALSE}
+mortality <- readr::read_csv("https://raw.githubusercontent.com/christianthieme/MSDS-DATA607/master/dataset3_under_5_mortality_project2.csv")
+mortality_clean <- mortality[c(13:45),c(1:31)]
+headers <- (mortality[c(12),c(1:31)])
+
+heads <- stringr::str_extract_all(headers, "(Region Name)|(Uncertainty bounds)|([0-9]{4})")
+head <- base::unlist(heads)
+colnames(mortality_clean) <- head
+
+head(mortality_clean)
+
+```
+
+Now we can work on transforming our data set from a "wide" data set, to a "long" data set. 
+
+```{r}
+mortality_long <- mortality_clean %>% gather("1990":"2018", key = "year", value = "deaths")
+head(mortality_long)  
+```
+
+Next, you'll notice that this data set actually includes a confidence interval for the estimates they are making (Uncertainty Bounds), however, for our purposes, we will just use the "Median" value for our analysis, so let's filter out data related to the "Lower" and "Upper" bounds.
+
+```{r}
+mortality_final <- mortality_long %>% filter(`Uncertainty bounds` == "Median")
+mortality_final
+```
+
+### Requested Analysis
+
+Now that we have a cleaned data set, let's see if we can identify any trends over the years in mortality rates for children under 5 in each region. 
+
+```{r fig.width= 10, fig.height= 5}
+ggplot(data = mortality_final) + 
+  aes(x = as.numeric(year), y = deaths, color = `Region Name`) + 
+  geom_line() + 
+  geom_point(size = .9) + 
+  labs(title = "Mortaility Rate of Children Under 5", color = "Region") + 
+  ylab("Death's per 1,000 births") + 
+  xlab("Year") + 
+  theme_bw() + 
+     theme(
+     panel.border = element_blank(),
+     axis.line = element_line(color = "black"),
+    plot.title = element_text(hjust = .70)
+    )
+
+```
+
+### Conclusion
+
+In looking at the chart above, one thing is clear. The mortaility rate for children under 5 is declining in every region. Some regions have much more drastic declines than others, such as East Asia, Sub-Saharan Africa, West and Central Africa, and Eastern Europe and Central Asia. Others such as North America and Western Europe have enjoyed low mortaility rates for years, and so have only seen a very small decrease in the mortality rate. While it appears some incredible work has been done, we can still see that the regions of East Asia, Sub-Saharan Africa, West and Central Africa, and Eastern Europe and Central Asia still have a lot of work to do to catch up with the other regions of the world. 
+
+# Project 2 Summary
+
+While the data sets may have come from different places and contained different information, many of the same "tidying" principles applied to each data set. In performing the above tidying, cleaning, and analysis, the following principles were followed: 
+
+1. Each variable forms a column.
+
+2. Each observation forms a row.
+
+3. Each type of observational unit forms a table.
+
+Following these principles in any tidying exercise will make analysis much easier down the road. 
