@@ -1,0 +1,155 @@
+---
+title: 'Week 7 DATA607 Assignment'
+author: "Christian Thieme"
+date: "3/14/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Working with HTML, XML, and JSON in R
+
+## Introduction
+
+The purpose of this project is to demonstrate knowledge of HTML, XML, and JSON, as well as how to parse and extract information from each. As part of this project I manually created three seperate files: an HTML file, an XML file, and a JSON file. These files all contain the same information, but stored in their respective structures. Each file stores information on three of my favorite books discussing some aspect of the R programming language. The files can be found on my GitHub, [here](https://github.com/christianthieme/MSDS-DATA607). A screenshot is shown below for each file to easily see the differences in how the data is stored:
+
+1. [HTML File](https://github.com/christianthieme/MSDS-DATA607/blob/master/books_html.html): 
+
+
+![](C:\Users\chris\OneDrive\Master Of Data Science - CUNY\Spring 2020\DATA607\Week 7\Homework Week 7\html_screenshot.jpg)
+
+2. [XML File](https://github.com/christianthieme/MSDS-DATA607/blob/master/books_xml.xml)
+
+![](C:\Users\chris\OneDrive\Master Of Data Science - CUNY\Spring 2020\DATA607\Week 7\Homework Week 7\xml_screenshot.jpg)
+
+3. [JSON File](https://github.com/christianthieme/MSDS-DATA607/blob/master/books_json.json)
+
+![](C:\Users\chris\OneDrive\Master Of Data Science - CUNY\Spring 2020\DATA607\Week 7\Homework Week 7\json_screenshot.jpg)
+
+By looking at the screenshots above, you can see how clean and easy to read the JSON file is as well as how it doesn't have to store extra data by storing ending tags for every element. This is one of the reasons why so many web technologies have adopted and used JSON for their data transmission/receipts. 
+
+## Working with the Data
+
+Now that we have data stored in several different ways, let's use R to load these different file types into R data frames. Before loading any data, let's load the libraries we will need to do this:
+
+```{r message=FALSE, warning=FALSE}
+library(xml2)
+library(jsonlite)
+library(tidyverse)
+library(rlist)
+```
+
+
+We'll first take a look at loading the HTML file into a data frame. The [file](https://github.com/christianthieme/MSDS-DATA607/blob/master/books_xml.xml) is stored here on my GitHub. We will use the xml2 library to read the html file. Then using the rvest we will extract the nodes of interest creating a vector of characters. We will then use this vector to create a matrix, specifiying that our data has 5 columns. Finally, we can transform this matrix into a data frame and rename the columns. 
+
+```{r}
+page <- xml2::read_html("https://raw.githubusercontent.com/christianthieme/MSDS-DATA607/master/books_html.html")
+headers <- page %>% rvest::html_nodes("th") %>%
+  rvest::html_text()
+data <- page %>% rvest::html_nodes("td") %>%
+      rvest::html_text()
+data_matrix <- matrix(data, ncol = 5, byrow = TRUE)
+dataframe <- as.data.frame(data_matrix, stringsAsFactors = FALSE)
+names(dataframe) <- headers
+dataframe
+
+```
+
+Now that we have successfully loaded the data from our HTML file into a data frame, let's move to our next task - reading in the XML file and creating a data frame. XML and HTML are similar in that they both use tags. In this instance, we should be able to leverage the xml2 library again. The raw XML file can be found [here](https://raw.githubusercontent.com/christianthieme/MSDS-DATA607/master/books_xml.xml). Because several of the books have several authors, we could do this in two different ways. We could create a data frame mirroring the data frame above where all authors are in one string for each book, OR we could create a data frame where each author is on it's own line, such that the title, year published, pages, and description of the book are repeated for each author. I will demonstrate both options, beginning with replicating how the data frame from the HTML file above is formatted.
+
+We will begin by reading in the XML file by using the read_xml function. I will start by looking to see how many books are in the file and extracting their ID's so that I can use them later to dynamically extract the data I want from each book. I will create an empty data frame to hold the data I extract. Next, I'll look  through each book's ID and use the ID in the XPATH to extract the data I want from each book. After I've extracted the necessary data from the book, I will add the rows to my empty data frame and then go back through the loop for the next book. In the code below, I use the str_c function to collapse the vector of characters extracted from the author's so that they will all fall in to one row. 
+
+```{r}
+xpage <- xml2::read_xml("https://raw.githubusercontent.com/christianthieme/MSDS-DATA607/master/books_xml.xml")
+books <- xml_find_all(xpage, "//book")
+id <- xml_attr(books, "id") 
+
+dataframe <- data.frame()
+
+for (i in id) { 
+ title <- xml_find_all(xpage, paste0("//book[@id=",i,"]/title")) %>%
+   xml_text()
+ author <- xml_find_all(xpage, paste0("//book[@id=",i,"]/author")) %>%
+   xml_text() %>% str_c(collapse = ", ")
+ publish_year <- xml_find_all(xpage, paste0("//book[@id=",i,"]/publish_year")) %>%
+   xml_text()
+ pages <- xml_find_all(xpage, paste0("//book[@id=",i,"]/pages")) %>%
+   xml_text()
+ description <- xml_find_all(xpage, paste0("//book[@id=",i,"]/description")) %>%
+   xml_text()
+ 
+ hold_data <- data.frame(title, author, publish_year, pages, description) 
+ dataframe <- rbind(dataframe, hold_data)
+}
+
+dataframe
+
+```
+
+Now, I will show the second option, where each author is on it's own line, such that the title, year published, pages, and description of the book are repeated for each author. In this code, I remove the str_c, so that the character vector is not collapsed and so each author has it's own line. 
+
+```{r}
+xpage <- xml2::read_xml("https://raw.githubusercontent.com/christianthieme/MSDS-DATA607/master/books_xml.xml")
+books <- xml_find_all(xpage, "//book")
+id <- xml_attr(books, "id") 
+
+dataframe <- data.frame()
+
+for (i in id) { 
+ title <- xml_find_all(xpage, paste0("//book[@id=",i,"]/title")) %>%
+   xml_text()
+ author <- xml_find_all(xpage, paste0("//book[@id=",i,"]/author")) %>%
+   xml_text()
+ publish_year <- xml_find_all(xpage, paste0("//book[@id=",i,"]/publish_year")) %>%
+   xml_text()
+ pages <- xml_find_all(xpage, paste0("//book[@id=",i,"]/pages")) %>%
+   xml_text()
+ description <- xml_find_all(xpage, paste0("//book[@id=",i,"]/description")) %>%
+   xml_text()
+ 
+ hold_data <- data.frame(title, author, publish_year, pages, description) 
+ dataframe <- rbind(dataframe, hold_data)
+}
+
+dataframe
+```
+
+Now, we will move to building a data frame with our last file type: the JSON file. The raw JSON file is located [here](https://raw.githubusercontent.com/christianthieme/MSDS-DATA607/master/books_json.json) on my GitHub. In the same way as above, we can do this in two ways. We could create a data frame mirroring the HTML data frame above where all authors are in one string for each book, OR we could create a data frame where each author is on it's own line, such that the title, year published, pages, and description of the book are repeated for each author. I will demonstrate both options, beginning with replicating how the data frame from the HTML file is formatted. First I read in the data using the fromJSON function from the jsonlite library. Specifiying simpilifyVector = FALSE returns a list. Returning a list allows us to use the rlist library. 
+
+```{r}
+json_list <- fromJSON("https://raw.githubusercontent.com/christianthieme/MSDS-DATA607/master/books_json.json", simplifyVector = FALSE)$favorite_subject_books
+json_list
+```
+
+With the rlist library, we can select the list names that we want with list.select and then stack those lists into a data frame using list.stack. As I did above with the XML document, I use the str_c function to collapse the vectors of characters into a single string so that books with multiple authors are all on one line.
+
+```{r}
+dataframe <- list.stack(list.select(json_list,title, str_c(`author(s)`, collapse = ", "),publish_year, pages, description))
+names(dataframe) <- names(json_list[[1]])
+dataframe
+#author <- list.select(json_list, author)
+```
+
+If I use the unlist function instead of str_c, I can show each author on its own line such that the title, year published, pages, and description of the book are repeated for each author.
+
+```{r}
+dataframe <- list.stack(list.select(json_list,title, unlist(`author(s)`),publish_year, pages, description))
+names(dataframe) <- names(json_list[[1]])
+dataframe
+```
+
+## Conclusion
+
+In this project I have demonstrated how to parse, extract, manipulate, and organize HTML, XML, and JSON data using R. These skills are highly valuable in working with data from the web such as API's and web scraping. Although the data from each file type is stored in a different structure, depending on our end goal, we can make each data frame look exactly the same, or we can change the format like I demonstrated when we wanted each author to have it's own line in the data frame. The key is simply to understand the underlying structure of the data. Once you know and understand the structure, you can extract the elements that you need and organize/format them into any format necessary. 
+
+
+
+
+
+
+
+
+
+
