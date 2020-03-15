@@ -20,3 +20,6 @@ http://rpubs.com/christianthieme/580041
 
 6. Week 6 Project 2:
 https://rpubs.com/christianthieme/582571
+
+7. Week 7 Assignment: 
+https://rpubs.com/christianthieme/585086
