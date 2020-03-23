@@ -1,0 +1,976 @@
+---
+title: "Data 607 Project 3 Data Science Skills"
+date: "3/22/2020"
+output:
+  html_document:
+    code_folding: show
+    fig_height: 4
+    fig_width: 8
+    highlight: espresso
+    theme: flatly
+    toc: yes
+    toc_float: yes
+  pdf_document: default
+---
+## 1. Introduction
+
+### a. What are the most valuable skills?
+
+As future data scientists, the goal of this project is to determine which skills are most valued by employers. In order to appropriately answer this question, we decided to look at current job postings and to look for skills that were most frequently requested by employers. As a data set with current job postings was not available, we decided to scrape data from an online job posting site to perform our analysis.
+
+
+
+### b.Team members
+
+Collaborators on this project are as follows:
+
+ + Christian Thieme
+ + Dennis Pong
+ + Nilsa Bermudez
+ + Subhalaxmi Rout
+ 
+### c. Sections each team member worked on
+
+Our project was broken into the following areas and responsibilities:
+
++ Data Acquisition : Christian Thieme
++ Data Cleaning : Subhalaxmi Rout
++ Data Storage : Nilsa Bermudez
++ Analysis : Dennis Pong
+
+### d. Collaboration
+
+We used the following technologies to collaborate:
+
++ Slack
++ GitHub
++ Google Docs
++ Zoom/BlueJeans
+
+### e. The Vision
+
+In order to accomplish this, we first had to determine how we could could measure what was valuable to an employer. After looking at different job sites and individual job postings, we determined that skills valued accross the industry would probably be common to many of the job postings. We decided to look for key words within job postings and to count how frequently that word was used between job postings. In order to execute our vision, we needed to scrape some data from the web.
+
+
+## 2. Load Libraries
+
+Below libraries are required:
+
+```{r load-lib, message=FALSE, warning=FALSE}
+# install.packages("rvest")
+# install.packages("xml2")
+# install.packages("tidyverse")
+# install.packages("stringr")
+# install.packages("dplyr")
+# install.packages("DT")
+# install.packages("mgsub")
+# install.packages("rJava")
+# install.packages("plotly")
+#install.packages("httr")
+
+library(tidyverse)
+library(rvest)
+library(xml2)
+library(stringr)
+library(dplyr)
+library(DT)
+library(mgsub)
+#library(qdap)
+library(plotly)
+library(ggplot2)
+library(httr)
+```
+
+
+
+## 3. Data Acquisition 
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+In order to conduct a thorough analysis using "fresh" data, our group decided to scrape Indeed.com to get a sample of current job postings. Indeed.com is an American worldwide search engine for job listings. It is one of the largest job sites in the United States along with LinkedIn, Monster, and Craigslist. Indeed.com proved to be the easiest site to scrape and since we found that many job postings were posted on multiple sites anyway, scraping only from Indeed.com should give us a representative sample of jobs from all locations within the US.
+In order to scrape this data, we will leverage the xml2 and rvest libraries. These two libraries contain a host of functions useful for web scraping, allowing you to access different elements on the page based on CSS selectors or XPATHs. In addition, they also work well with Tidyverse so understanding the code that is written is very easy. 
+The code below is a scraper function used to search all 100 pages of job adds for Data Scientists in the USA on Indeed.com. It utilizes both CSS selectors and XPATHs to extract the job title, job location, company name, and job description of each posting. One of the challenges encountered during this project was that each job page on Indeed.com shows 10 or more jobs, but only shows a "short" summary of the job description. Because of this, it became necessary to grab all of the links from each individual summary job post, navigate to those links which were the full job post, and then scrape the full job description from that page. So to scrape one full job posting, you actually have to scrape 2 pages. Another challenge was overcoming timeout errors from the Indeed servers while scraping or being kicked off by the servers (404 errors). To prevent that, a few lines of code were added (sys.sleep()) to allow the web page to open for a random amount of time before scraping. This line obviously adds to the time this code takes to run, but it allows the code to run through every job posting without error. The last challenge encountered during the creation of this scraper, was that at times not all of the elements we required were available for every posting. In the case that an element was missing, it would throw off the length of the vectors so that the lengths wouldn't match, ultimately making it impossible to create a data frame out of the data. This was remedied by adding an if/else statement that checks the lengths of the vectors before adding the data to the data frame. Adding these lines of code allow us to skip those postings that are missing our required data. 
+Upon the final run of the scraper, it scraped 1,666 full job postings. To do this, the scraper had to navigate through 100 pages of job listings, containing 10 listings or more, and then navigate to 1,666 individual posting pages to grab the full job description, bringing the total count of pages scraped to 1,766. The full code takes about an hour and a half to run, which is pretty fast if you think about all the pages it has to navigate through and scrape -not to mention it has to pause for a random amount of time at each page so the Indeed servers don't boot it off. At the conclusion of this code, a CSV file was created with the job postings and loaded to Christian Thieme's GitHub account [here](https://raw.githubusercontent.com/christianthieme/MSDS-DATA607/master/indeed_scrape.csv), so that it could be easily accessed by the members of the team. This allowed us to all work off the same data set. Were we to use this code in production, we would simply remove the line of code pushing the final data frame to a CSV and pick up with the ending data frame for our next operation.
+
+```{r the-scraper, eval=FALSE}
+#Scraper function can be called on an indeed URL and will scrape the associated job postings
+scraper_func <- function(page) {
+  #scraping job title 
+  job_title <- page %>%
+  rvest::html_nodes(".jobtitle") %>%
+  rvest::html_attr("title")
+  #scraping job location
+  location <- page %>%
+  rvest::html_nodes(".location") %>%
+  rvest::html_text()
+  #scraping company name
+  company_name <- page %>% rvest::html_nodes(".company") %>%
+  rvest::html_text() %>%
+  stringi::stri_trim_both()
+  #scraping links to individual job posting pages (to get job descriptions in next step)
+  links <- page %>%
+  rvest::html_nodes('[data-tn-element="jobTitle"]') %>%
+  rvest::html_attr("href")
+  #initializing empty vector that will hold job descriptions
+  job_desc <- c()
+  # looping through job links, going to each page, and then extracting the job description and adding to the
+  #job description vector
+  for (link in links) {
+    url <- paste0("https://www.indeed.com/", link)
+    page <- xml2::read_html(url)
+    Sys.sleep(sample(seq(1, 2, by=0.01), 1))
+    
+    page <- page %>% html_node("#jobDescriptionText") %>%
+      html_text() %>%
+      stringi::stri_trim_both()
+    
+    job_desc <- c(job_desc, page)
+    }
+    if (length(job_title) != length(location) | length(job_title) != length(company_name) | length(job_title) != length(job_desc)) {
+      job_title <- NA
+      location <- NA
+      company_name <- NA
+      job_desc <- NA
+  
+      df <- data.frame(job_title, location, company_name, job_desc)
+  
+      return(df)
+    } else {
+  #creating ending df of all the above information
+      df <- data.frame(job_title, location, company_name, job_desc)
+      return(df)
+    }
+}
+#pages of job adds
+pages <- seq(from = 0, to = 990, by = 10 )
+#initializing empty data frame
+ds_df <- data.frame()
+#url of first page, searching for Data Science jobs in the USA
+url <- "https://www.indeed.com/jobs?q=data+scientist&l=USA"
+#for loop to loop through each page in the pages vector
+for (i in pages) {
+  #condition to scrape the first page, since the URL is different than other pages
+  if (i == 0) {
+    page <- xml2::read_html(url)
+    #using sleep here to make sure full page is read so there aren't differences in vector lengths when scraping the data
+    Sys.sleep(sample(seq(1, 2, by = 0.01), 1))
+    #Running function on opening page
+    df <- scraper_func(page)
+    #adding data frame containing data from first page to empty data frame
+    ds_df <- rbind(ds_df, df)
+    } else { 
+    #creating URL for next pages and reading the HTML
+    url_next <- paste0(url, "&start=", i)
+    page <- xml2::read_html(url_next)
+    #pausing for page to fully be read
+    Sys.sleep(sample(seq(1, 2, by = 0.01), 1))
+    #Running function to scrape data from pages 2-99
+    df <- scraper_func(page)
+    #appending data frame data from each page to ds_df
+    ds_df <- rbind(ds_df, df)
+    }
+  }
+#ds_df #uncomment if using in production
+#writing final data frame to csv
+readr::write_csv(ds_df,"C:/Users/xx/xx/Master Of Data Science - CUNY/Spring 2020/DATA607/Week 7/job_postings.csv") #comment out if using in production
+```
+
+
+## 4. Data Cleaning
+
+There is a total 1666 number of rows of data available in the raw dataset. The cleaning process gives the relevant data for analysis.
+This step is comprised of several sub-steps outlined below:
+
++ Remove duplicate row
++ Remove `\n` from Job_desc `column`
++ Split `location` column to `location` and `State`. Location column shows city name and State shows state code such as CA - California, and FL - Florida
++ Converted all job_description column to lower case, this helps to compair relevant words for `hard skills` and `soft skills`
++ Created 2 vectors, added all soft and hard skills words in it
++ Compare the keywords(values) against `job description` column. Matching words put in the respective columns
++ Create Regex function to pull out salary range from `job description`
++ Create one function(makenumcols), convert `salary_higher_range` and `salary_lower_range` from charecter to numeric
++ Create 2 more new columns, to disply unique value of hard and soft skills
+
+During data cleaning faced some challenges, those are:
+
++ Creation  2 columns `Hard skills` and `Soft skills` - created 2 buckets, matching the words of the bucket from the job description and put that word in the repective columns
+
++ Change salary column character to numeric : salary column consist of list, created one function, which check the data of the each column is. The column consist of numeric data change that column type to numeric. 
+
+```{r load-data}
+#data cleaning
+data <- readr::read_csv("https://raw.githubusercontent.com/christianthieme/MSDS-DATA607/master/indeed_scrape.csv")
+#remove duplicate
+data <- unique(data)
+#remove row where job description is blank
+data <- data %>% filter(job_desc != "")
+# remove "\n" from job description
+data$job_desc <-  str_replace_all(data$job_desc, "[\r\n]" , "")
+#creat one more column with state
+location_ex <- "[A-Z]{2}"
+data <- data %>% mutate(state = str_extract(location, location_ex))
+#remove postal code from city
+postal_ex <- "\\w+.\\w+"
+data$location <-  str_extract(data$location, postal_ex)
+#order the data
+data <- data %>% select(job_title,location,state,company_name,job_desc)
+#change all the upper case letter to lower case
+data$job_desc <- tolower(data$job_desc)
+#view data
+head(data, 1)
+```
+
+
+```{r softskills}
+# created vector for soft skills
+tags_softskills <- c('highly motivated','curious','critical thinking', 'problem solving',  'creativity','collaboration',"enthusiastic over-achievers","interpersonal skills","analytical thinker","passionate","humble","resourceful", "work independently","driving on-time","ability to think outside-the-box","communication","communicate","solve the business problem","decision-making"
+)
+tags_softskills <- tolower(tags_softskills)
+#Extract keywords from "description" column and create new column with keywords 
+tag_ex <- paste0('(', paste(tags_softskills, collapse = '|'), ')')
+data <- data %>%
+mutate(soft_skills = sapply(str_extract_all(job_desc, tag_ex), function(x) paste(x, collapse=',')))
+#view data
+head(data,1)
+```
+
+```{r hardskills}
+# created bucket for hard skills
+tags_technicalskills <- c("analytic solutions","machine learning","predictive modeling","database systems","clinical decision engines", "algorithms", "NLP/ML", "SQL",  "MongoDB","DynamoDB", "R, ","Python","dplyr","GGPlot", "Pandas","OLS","MLE","Machine Learning",  "Decision Tree/Random Forest","AI" , "Visualization","A/B tests set-up","Reporting","analysis",  "data visualizations","numpy", "scipy","scikit-learn", "tensorflow","pytorch" , "keras","genism", "vowpal wabbit","Heap.io","Google Analytics","Big Data","Business Analytics","Oracle","Relational Database Management System (RDMS)","Statistical Programming Language","Regression","Decision Trees","K-Means","Tableau","looker","R Programming" ,"Microsoft Office" , "SPSS","No-SQL", "Cassandra","Hadoop", "Pig","Hive", "HPCC Systems","Javascript" , "Java programming","PowerBI","Linux","TensorFlow", "Keras","Shiny","Artificial Intelligence","NLP", "Tesseract","Jenkins CI/CD", "Azure","logistic regression","k-means clustering","decision forests", "JavaScript","Cloud data", "MATLAB","Excel", "Jupyter","Gurobi","agile", "Git","Github" , "Qlikview","Business Intelligence", "supply chain","D3", "big data",'business sense','C Programming','group API', 'Get Requests', 'Push Requests', 'Update Requests','AWS', 'Sagemaker','Power BI','Cognos', 'Business Objects','Amplitude','Mixpanel','Salesforce', 'Qlik','Microstrategy', 'java, ')
+tags_technicalskills <- tolower(tags_technicalskills)
+#Extract keywords from "description" column and create new column with keywords
+tag_ex <- paste0('(', paste(tags_technicalskills, collapse = '|'), ')')
+# add hard-skill column in to data set
+data <- data %>%
+mutate(hard_skills = sapply(str_extract_all(job_desc, tag_ex), function(x) paste(x, collapse=',')))
+data <- data %>% select (job_title,location,state,company_name,job_desc,hard_skills,soft_skills)
+#view data
+head(data,1)
+```
+
+```{r salary}
+# regex for salary upper range
+tags_salary_lower <- "\\$[0-9]{2,},?[0-9]{3}\\.?([0-9]{2})|(\\$[0-9]{2,3},?[0-9]{3})"
+# regex for salary lower range
+tags_salary_upper <- "([\\/to-]\\s\\$[0-9]{2,},?[0-9]{3}\\.?([0-9]{2}))|([\\/to-]\\s\\$[0-9]{2,},?[0-9]{3})"
+# created new column named as salary_lower_range and salary_higher_range
+data <- data %>% mutate(salary_lower_range = str_extract(job_desc, tags_salary_lower))
+data <- data %>% mutate(salary_higher_range = str_extract(job_desc, tags_salary_upper))
+# remove "$" and punctuations from the salary
+data$salary_lower_range <- gsub("\\$|,", "", data$salary_lower_range)
+data$salary_higher_range <- gsub("\\$|,|o|-|/", "", data$salary_higher_range)
+# change character to integer
+makenumcols<-function(data)
+  {
+  data<-as.data.frame(data) # stored in a data frame
+  
+  data[] <- lapply(data, as.character) # check for character type
+  
+  cond <- apply(data, 2, function(x) { # condition for numeric, if numeric value True or else False
+    x <- x[!is.na(x)]
+    all(suppressWarnings(!is.na(as.numeric(x))))
+  })
+  # the columns have numeric data
+  numeric_cols <- names(data)[cond]
+  data[,numeric_cols] <- sapply(data[,numeric_cols], as.numeric)
+  #return the data desired format
+  return(data)
+}
+data <- makenumcols(data)
+#view data
+head(data,1)
+```
+
+```{r uniqueSkills}
+# remove duplicate hard skills
+data$hard_skills_2  <- sapply(strsplit(data$hard_skills, ","), function(x) paste(unique(x), collapse = ","))
+#unique(unlist(strsplit(data$hard_skills_2,",")))
+# remove duplicate soft skills
+data$soft_skills_2 <- sapply(strsplit(data$soft_skills, ","), function(x) paste(unique(x), collapse = ","))
+# arrange data
+data <- data %>% select(job_title, location, state, company_name, job_desc, hard_skills, hard_skills_2, soft_skills, soft_skills_2, salary_lower_range, salary_higher_range)
+# view data
+head(data,1)
+```
+
+```{r skillsetgrouping}
+# replace "r," to r and c, to c and java, to java
+data$hard_skills_2 <- as.character(lapply(data$hard_skills_2, gsub, pattern = "r, ", replacement = "r programming", fixed = TRUE))
+data$hard_skills_2 <- as.character(lapply(data$hard_skills_2, gsub, pattern = " r/", replacement = "r programming", fixed = TRUE))
+data$hard_skills_2 <- as.character(lapply(data$hard_skills_2, gsub, pattern = "/r ", replacement = "r programming", fixed = TRUE))
+data$hard_skills_2 <- as.character(lapply(data$hard_skills_2, gsub, pattern = "c, ", replacement = "c programming", fixed = TRUE))
+
+data$hard_skills_2 <- as.character(lapply(data$hard_skills_2, gsub, pattern = "java, ", replacement = "java", fixed = TRUE))
+#data$hard_skills_2 <- as.character(lapply(data$hard_skills_2, gsub, pattern = "r", replacement = "r", fixed = TRUE))
+#data$hard_skills_2 <- as.character(lapply(data$hard_skills_2, gsub, pattern = "c", replacement = "", fixed = TRUE))
+data$hard_skills_2 <- as.character(lapply(data$hard_skills_2, gsub, pattern = "java programming", replacement = "java", fixed = TRUE))
+data$hard_skills_2 <- as.character(lapply(data$hard_skills_2, gsub, pattern = "artificial intelligence", replacement = "ai", fixed = TRUE))
+
+data$hard_skills_2 <- as.character(lapply(data$hard_skills_2, gsub, pattern = "qlik|qlikview", replacement = "qlikview"))
+
+data$hard_skills_2 <- as.character(lapply(data$hard_skills_2, gsub, pattern = "power bi", replacement = "powerbi", fixed = TRUE))
+
+
+data$hard_skills_2 <- as.character(lapply(data$hard_skills_2, gsub, pattern = "nlp|nlp/ml", replacement = "nlp/ml"))
+
+data$hard_skills_2 <- as.character(lapply(data$hard_skills_2, gsub, pattern = "k-means clustering|k-means", replacement = "k-means clustering"))
+
+data$hard_skills_2 <- as.character(lapply(data$hard_skills_2, gsub, pattern = "decision tree/random forest", replacement = "decision trees", fixed = TRUE))
+data$hard_skills_2 <- as.character(lapply(data$hard_skills_2, gsub, pattern = "random forest", replacement = "decision trees", fixed = TRUE))
+data$hard_skills_2 <- as.character(lapply(data$hard_skills_2, gsub, pattern = "data visualizations", replacement = "visualizations", fixed = TRUE))
+
+data$hard_skills_2 <- as.character(lapply(data$hard_skills_2, gsub, pattern = "microsoft office", replacement = "excel", fixed = TRUE))
+data$hard_skills_2 <- as.character(lapply(data$hard_skills_2, gsub, pattern = "sagemaker", replacement = "aws", fixed = TRUE))
+data$hard_skills_2 <- as.character(lapply(data$hard_skills_2, gsub, pattern = "heap.io", replacement = "heap", fixed = TRUE))
+
+data$soft_skills_2 <- as.character(lapply(data$soft_skills_2, gsub, pattern = "communicate|communication", replacement = "communication skills"))
+
+# get unique value
+data$hard_skills_2 <- sapply(strsplit(data$hard_skills_2, ","), function(x) paste(unique(x), collapse = ","))
+data$soft_skills_2 <- sapply(strsplit(data$soft_skills_2, ","), function(x) paste(unique(x), collapse = ","))
+
+
+# view data
+head(data,1)
+```
+
+```{r export}
+#Create .csv file
+# write.csv(data, file = "data.csv", row.names = FALSE)
+# data <- read.csv("data.csv")
+# datatable(data)
+```
+
+
+## 5. Analysis
+
+After cleaning the data, below graphs shown most valuable skills for data scientist, how job openings in the USA, location wise skills distribution and IF-IDF analysis.
+
+### 5.1 High level picture of job post in different states  
+
+ In this Map shows job post for data scientist all over USA. From the Gep map `California` has highest number of job openings. 
+ Map has zoom in and zoom out feature. On the mouse hover map shows number of job post along with State.
+ 
+```{r map-job-post}
+
+# count job post of different state
+df_jobs <- data %>% group_by(state) %>% dplyr::summarize (n = n())
+
+#write.csv(df_jobs, file = "states.csv",row.names=FALSE)
+
+df_jobs <- utils::read.csv("states.csv")
+df_jobs$hover <- with(df_jobs, paste(state, '<br>', "jobs:", n))
+
+# give state boundaries a white border
+l <- list(color = toRGB("white"), width = 2)
+# specify some map options
+g <- list(
+  scope = 'usa',
+  projection = list(type = 'albers usa'),
+  showlakes = TRUE,
+  lakecolor = toRGB('white')
+)
+
+# plot the map
+map <- plot_geo(df_jobs, locationmode = 'USA-states') %>%
+  add_trace(
+    z = ~n, text = ~hover, locations = ~state,
+    color = ~n, colors = 'Greens'
+  ) %>%
+  colorbar(title = "Data scientist Job Postings") %>%
+  layout(
+    title = 'Data scientist Jobs by State',
+    geo = g
+  )
+map
+```
+ 
+
+### 5.2. Most granular level of detail hard/soft skills and analysis 
+
+#### 5.2.1 Top 10 granular hard skills
+
+Top 10 valueable data science skills shown along with frquency count percentage. 
+
+```{r granular-top 10-hard-skills, fig.height=5, fig.width=10}
+# read csv file from github
+data <- read.csv("https://raw.githubusercontent.com/SubhalaxmiRout002/Data-607-Project-3/master/data.csv", stringsAsFactors = FALSE)
+
+# data$hard_skills_2 frequency count
+granular_skills_count <- table(strsplit(paste(stringi::stri_remove_empty(data$hard_skills_2, na_empty = T), collapse = ','), ","))
+# put in a data frame
+granular_df <- as.data.frame(granular_skills_count)
+# arrange in desc order
+final <- granular_df %>% dplyr::arrange(desc(Freq))
+# Frequency percent count
+final <- granular_df %>% dplyr::arrange(desc(Freq)) %>% mutate(Frequency_Percent = round(Freq/sum(Freq), 3)*100)
+final <- top_n(final, 10)
+
+# plot Data Science Hard Skills frequency percent count
+  ggplot(data = final) +
+  aes(x = reorder(Var1, Frequency_Percent), y = Frequency_Percent) +
+  geom_bar(stat = "identity",fill = "steelblue") +
+  geom_text(aes(label = paste0(Frequency_Percent, "%")), hjust = -.15) +
+  labs(title = "Top Data 10 Science Hard Skills") +
+  xlab("Hard Skills") +
+  ylab("Percentage") +
+  theme(
+    panel.background = element_rect(fill = "white", color = NA),
+     axis.ticks.y = element_blank(),
+    axis.text.x = element_blank(),
+    axis.ticks.x = element_blank(),
+     plot.title = element_text(hjust = 0.35)
+  ) +
+  coord_flip()
+
+```
+
+#### 5.2.2 Top 10 granular soft skills
+
+Top 10 valueable data science skills shown along with frquency count percentage. 
+
+```{r granular-top 10-soft-skills, fig.height=5, fig.width=14}
+granular_soft_skills_count <- table(strsplit(paste(stringi::stri_remove_empty(data$soft_skills_2, na_empty = T), collapse = ','), ","))
+# put in a data frame
+granular_soft_df <- as.data.frame(granular_soft_skills_count)
+# arrange in desc order
+final_softskill <- granular_soft_df %>% arrange(desc(Freq))
+# Frequency percent count
+final_softskill <- granular_soft_df %>% arrange(desc(Freq)) %>% mutate(Frequency_Percent = round(Freq/sum(Freq), 3)*100)
+final_softskill <- top_n(final_softskill, 10)
+
+# plot Data Science Soft Skills frequency percent count
+  ggplot(data = final_softskill) +
+  aes(x = reorder(Var1, Frequency_Percent), y = Frequency_Percent) +
+  geom_bar(stat = "identity",fill = "steelblue") +
+  geom_text(aes(label = paste0(Frequency_Percent, "%")), hjust = -.15) +
+  labs(title = "Top 10 Data Science Soft Skills") +
+  xlab("Soft Skills") +
+  ylab("Percentage") +
+  theme(
+    panel.background = element_rect(fill = "white", color = NA),
+     axis.ticks.y = element_blank(),
+    axis.text.x = element_blank(),
+    axis.ticks.x = element_blank(),
+     plot.title = element_text(hjust = 0.35)
+  ) +
+  coord_flip()
+
+```
+
+### 5.3 Grouping tag approach
+
+```{r groupings-creation, message=FALSE, warning=FALSE}
+
+data <- read.csv("https://raw.githubusercontent.com/SubhalaxmiRout002/Data-607-Project-3/master/data.csv", stringsAsFactors = FALSE)
+
+
+# Hardskills Section 
+HS1 <- tolower(c("database systems", "clinical decision engines", "MongoDB", "DynamoDB","Big Data", "Oracle", "Relational Database Management System (RDMS)", "No-SQL", "Cassandra", "Hadoop", "HPCC Systems", "Linux"))
+HS2 <- tolower(c("PowerBI", "Business Intelligence", "Cognos", "Business Objects", "Salesforce", "Microstrategy"))
+HS3 <- tolower(c("API", "push requests", "get requests", "update requests"))
+HS4 <- tolower(c("supply chain", "business sense", "business knowledge"))
+HS5 <- tolower(c("predictive modeling", "R Programming", "MLE", "Decision Tree/Random Forest", "A/B tests set-up", "genism", "Statistical Programming Language", "Regression", "Decision Trees", "K-means clustering", "SPSS", "logistic regression","decision forests"))
+HS6 <- tolower(c("machine learning","NLP/ML", "AI", "tensorflow", "pytorch", "keras","Vowpal Wabbit", "Tesseract","NLP", "algorithms", "numpy", "scikit-learn", "Java", "MATLAB", "Gurobi","algorithmsscript", "C Programming"))
+HS7 <- tolower(c("SQL", "Python", "scipy", "Pig", "Hive"))
+HS8 <- tolower(c("analytic solutions", "dplyr", "Pandas", "OLS", "Reporting", "analysis", "Business Analytics", "Microsoft Office", "Shiny", "Jupyter", "excel"))
+HS9 <- tolower(c("GGPlot", "Visualization", "Tableau", "looker", "Qlik", "D3"))
+HS10 <- tolower(c("Heap.io", "Amplitude","heap", "mixpanel"))
+HS11 <- tolower(c("Google Analytics", "Javascript"))
+HS12 <- tolower(c("Jenkins CI/CD", "Git", "Github"))
+HS13 <- tolower(c("Azure", "Cloud data", "AWS", "Sagemaker"))
+HS14 <- tolower(c("agile"))
+data$hard_skill_groupings <- qdap::multigsub(HS1, "DataModeling&DbSystems", data$hard_skills_2) 
+data$hard_skill_groupings <- qdap::multigsub(HS2, "BusinessIntelligence", data$hard_skill_groupings)
+data$hard_skill_groupings <- qdap::multigsub(HS3, "API", data$hard_skill_groupings)
+data$hard_skill_groupings <- qdap::multigsub(HS4, "BusinessUnderstanding", data$hard_skill_groupings)
+data$hard_skill_groupings <- qdap::multigsub(HS5, "Statistics&AdvancedDataMining", data$hard_skill_groupings)
+data$hard_skill_groupings <- qdap::multigsub(HS6, "AI/ML&Algorithms", data$hard_skill_groupings)
+data$hard_skill_groupings <- qdap::multigsub(HS7, "ScriptingLanguages", data$hard_skill_groupings)
+data$hard_skill_groupings <- qdap::multigsub(HS8, "BusinessAnalytics&Reporting", data$hard_skill_groupings)
+data$hard_skill_groupings <- qdap::multigsub(HS9, "Visualizations", data$hard_skill_groupings)
+data$hard_skill_groupings <- qdap::multigsub(HS10, "ProductAnalytics", data$hard_skill_groupings)
+data$hard_skill_groupings <- qdap::multigsub(HS11, "WebAnalytics", data$hard_skill_groupings)
+data$hard_skill_groupings <- qdap::multigsub(HS12, "OpensourceManagementSystems&Automations", data$hard_skill_groupings)
+data$hard_skill_groupings <- qdap::multigsub(HS13, "CloudComputing", data$hard_skill_groupings)
+data$hard_skill_groupings <- qdap::multigsub(HS14, "Agile", data$hard_skill_groupings)
+hard_skill_levels <- c("DataModeling&DbSystems", "BusinessIntelligence", "API", "BusinessUnderstanding", "Statistics&AdvancedDataMining", "AI/ML&Algorithms", "ScriptingLanguages", "BusinessAnalytics&Reporting", "Visualizations", "ProductAnalytics", "WebAnalytics", "OSMS&Automations", "CloudComputing", "Agile" )
+# checking hard_skills_2 vs hard_skill_groupings 
+data %>% select  (one_of(c("hard_skills_2", "hard_skill_groupings"))) %>% head(4)
+data$hard_skill_groupings_2 <- sapply (strsplit(data$hard_skill_groupings, ","), function(x) paste(unique(x), collapse = ",") )
+# checking hard_skills_2 vs hard_skill_groupings_2
+data %>% select  (one_of(c("hard_skills_2", "hard_skill_groupings_2"))) %>% head(4)
+head(data$soft_skills_2,1)
+# Soft Skills Section 
+SS1 <- tolower(c("collaboration"))
+SS2 <- tolower(c("critical thinking", "problem solving", "analytical thinker","resourceful", "work independently", "ability to think outside-the-box", "solve the business problem"))
+SS3 <- tolower(c("Think creatively", "creativity","curious", "curiosity"))
+SS4 <- tolower(c("highly motivated", "enthusiastic over-achievers", "passionate"))
+SS5 <- tolower(c("interpersonal skills", "humble"))
+SS6 <- tolower(c("driving on-time"))
+SS7 <- tolower(c("decision-making"))
+SS8 <- tolower(c("communicate", "communication skills"))
+data$soft_skill_groupings <- qdap::multigsub(SS1, "Teamwork", data$soft_skills_2) 
+data$soft_skill_groupings <- qdap::multigsub(SS2, "ProblemSolving", data$soft_skill_groupings) 
+data$soft_skill_groupings <- qdap::multigsub(SS3, "IntellectualCuriosity", data$soft_skill_groupings) 
+data$soft_skill_groupings <- qdap::multigsub(SS4, "WorkEthic", data$soft_skill_groupings) 
+data$soft_skill_groupings <- qdap::multigsub(SS5, "InterpersonalSkills", data$soft_skill_groupings) 
+data$soft_skill_groupings <- qdap::multigsub(SS6, "TimeManagement", data$soft_skill_groupings) 
+data$soft_skill_groupings <- qdap::multigsub(SS7, "Leadership", data$soft_skill_groupings) 
+data$soft_skill_groupings <- qdap::multigsub(SS8, "CommunicationSkills", data$soft_skill_groupings) 
+Soft_skills_levels <- c("Teamwork", "ProblemSolving", "IntellectualCuriosity", "WorkEthic", "InterpersonalSkills", "TimeManagement", "Leadership", "CommunicationSkills")
+# checking soft_skills_2 vs soft_skill_groupings 
+data %>% select  (one_of(c("soft_skills_2", "soft_skill_groupings"))) %>% head(4)
+data$soft_skill_groupings_2 <- sapply (strsplit(data$soft_skill_groupings, ","), function(x) paste(unique(x), collapse = ",") )
+# checking soft_skills_2 vs soft_skill_groupings_2
+data %>% select  (one_of(c("soft_skills_2", "soft_skill_groupings_2"))) %>% head(4)
+```
+
+#### 5.3.1 Grouped Tags and Methodology: 
+We realized from the section above where we showed top soft skills and hard skills without any groupings that there is no lack of the keywords like AI, python, R on the hard skill department, and communication skills from the soft skills department. That’s expected. But, in reality, there are a total of 18 unique soft skills and 79 unique hard skills that were found. So there is an inherent motivation to answer the question what’re the true top skills desired by the employers across the country. 
+
+The methodology behind is comprehensive but nothing sophisticated. For each tag of soft skill, we grouped it under the 8 groups shown below. One can easily detect that these 8 distinct groups represent a different aspect of soft skills.
+
+
+```{r Analysis, message=FALSE, warning=FALSE}
+library(ggplot2)
+library(scales)
+
+count_table <- table(strsplit(paste(stringi::stri_remove_empty(data$soft_skill_groupings_2, na_empty = T), collapse = ','), ","))
+count_df <- as.data.frame(count_table)
+soft_skills_count_df_final <- count_df %>% arrange(desc(Freq)) %>% mutate(Frequency_Percent = round(Freq/sum(Freq), 3)*100)
+soft_skills_count_df_final
+
+```
+
+```{r fig.height=13, fig.width=13, message=FALSE, warning=FALSE}
+library(ggplot2)
+library(scales)
+  ggplot(data = soft_skills_count_df_final) +
+  aes(x = reorder(Var1, Frequency_Percent), y = Frequency_Percent) +
+  geom_bar(stat = "identity") +
+  geom_text(aes(label = paste0(Frequency_Percent, "%")), hjust = -.15) +
+  labs(title = "Top Data Science Soft Skills") +
+  xlab("Skill") +
+  ylab("Percent") +
+  theme(
+    panel.background = element_rect(fill = "white", color = NA),
+     axis.ticks.y = element_blank(),
+    axis.text.x = element_blank(),
+    axis.ticks.x = element_blank(),
+     plot.title = element_text(hjust = 0.35)
+  ) +
+  coord_flip()
+```
+
+
+So, on the hard skills’ front, we, as a team, did a tremendous job of collaboration, including Nilsa, myself, and Sabha. What we ended up is we categorized 79 technical skills into 14 different buckets. This step is necessary if we are to answer the question of what’re the top hard skills for Data Scientist to a senior executive of a company, let’s say, in the HR department. Without the categorizations, esp., in terms of functional area, we certainly felt the tasks of uncovering a general answer to the question Top Hard Skills needed by an employer is an arduous task. We definitely went back and forth and did a couple of consolidations on the following table of definition. For example, NLP and ML are grouped under NLP/ML. R and R Programming are merged into R Programming.  
+
+
+```{r figurename, echo=FALSE, fig.cap="", out.width = '90%'}
+knitr::include_graphics("group.png")
+```
+
+
+```{r Analysis-1a-Hard-Skills-Section}
+count_table1 <- table(strsplit(paste(stringi::stri_remove_empty(data$hard_skill_groupings_2, na_empty = T), collapse = ','), ","))
+count_df1 <- as.data.frame(count_table1)
+hard_skills_count_df_final <- count_df1 %>% arrange(desc(Freq)) %>% mutate(Frequency_Percent = round(Freq/sum(Freq), 3)*100)
+hard_skills_count_df_final
+
+```
+
+
+But exactly what we did here are a lot of tidying of data, transformation of data, which includes breaking down the list of hard skills into a unique list of hard skills with the removal of extra commas and empty strings. In a way, it facilitates the capability to slice the data into different geographic locations. The final output for hard skills groupings looks like the following.  
+
+
+```{r fig.width=13, fig.height= 4}
+  ggplot(data = hard_skills_count_df_final) +
+  aes(x = reorder(Var1, Frequency_Percent), y = Frequency_Percent) +
+  geom_bar(stat = "identity") +
+  geom_text(aes(label = paste0(Frequency_Percent, "%")), hjust = -.15) +
+  labs(title = "Top Data Science Hard Skills") +
+  xlab("Skill") +
+  ylab("Percent") +
+  theme(
+    panel.background = element_rect(fill = "white", color = NA),
+     axis.ticks.y = element_blank(),
+    axis.text.x = element_blank(),
+    axis.ticks.x = element_blank(),
+     plot.title = element_text(hjust = 0.35)
+  ) +
+  coord_flip()
+```
+
+
+For more analysis, refer to the conclusion section.  
+
+### 5.4 Analysis at group tag level by state
+
+
+#### 5.4.1 Analysis by State
+
+As you can see in the visual above, it appears that a majority of job postings are coming out of California. But do employers from other states value the same things that employers in California do? We will have to do some serious tidying to get this data set into a form that can be grouped by both state and skill count.
+Let's get started!
+We'll first start by creating two unique lists. Each one containing the unique values of the soft skills and hard skills, respectively.
+
+```{r}
+list_of_columns_ss <- unique(strsplit(paste(stringi::stri_remove_empty(data$soft_skill_groupings_2, na_empty = T), collapse = ','), ",")[[1]])
+list_of_columns_hs <- unique(strsplit(paste(stringi::stri_remove_empty(data$hard_skill_groupings_2 , na_empty = T), collapse = ','), ",")[[1]])
+
+```
+
+Now that we have the lists of unique values for both hard and soft skills, we can use them in a for-loop to create our modified data sets. We'll first start with the soft skills. We'll begin by filtering the "data" data frame to select only the state and soft_skill_groupings_2 columns. Next we'll build a function that will do most of the hard work for us. The function, called "count_finder" will look at each row of the of the data frame and will check if a word from our unique list is contained within the row. If it is, it will return 1, if it isn't it will return 0. To make this all work as intended, we'll need to create a for loop. The for loop will loop through each "skill tag" in the list, it will then utilize the "count_finder" function to check if that tag is included in each row of the data frame returning either 0 or 1 for each row, then it will take the list that is returned from the funtion (list of 0s, and 1s) and add it as a new column of the data frame and name it dynamically based on which item of the list we are currently iterrating on. At the conclusion of the for loop, you will have a data frame with the two original columns as well as a column for every name contained in the list from the for loop. Since this is a wide data set, we'll need to gather the data and group by state, and grouped skill tag, and sum the values to return a useable data frame grouped by both state and skill. See the output below.
+
+
+```{r soft-skills}
+data_new <- data %>%
+  dplyr::select(state, soft_skill_groupings_2)
+count_finder <- function(x, y) {
+    new_list <- c()
+    if (stringr::str_detect(x, y) == TRUE) {
+      new_list <- c(new_list, 1)
+    }
+    else{
+      new_list <- c(new_list, 0)
+    }
+}
+for (i in list_of_columns_ss) {
+  column_name <- as.character(i)
+  args_list <- list(x = data_new$soft_skill_groupings_2, y = column_name )
+  new_col = unlist(purrr::pmap(args_list, count_finder))
+  data_new <- data_new %>%
+    dplyr::mutate(!!column_name := new_col)
+}
+
+columns_end <- ncol(data_new)
+soft_skills_by_location <- data_new %>%
+  dplyr::select(c(1, 3:columns_end)) %>%
+  tidyr::gather(c(3:columns_end-1), key = "Skill", value = "count") %>%
+  dplyr::group_by(state, Skill) %>%
+  dplyr::summarize("skill_count" = sum(count)) %>%
+  dplyr::arrange(desc(skill_count))
+soft_skills_by_location
+```
+
+You can see in the data above, that the data has been grouped by state and grouped skill tag. We will replicate this below for the hard skills, utilizing the function we created in the previous code block. The only change here is that we will specify that the function look at the hard_skill_groupings_2 column instead of the soft_skill_groupings_2 column.
+
+```{r}
+data_new_hs <- data %>%
+  dplyr::select(state, hard_skill_groupings_2)
+for (i in list_of_columns_hs) {
+  column_name <- as.character(i)
+  args_list <- list(x = data_new_hs$hard_skill_groupings_2, y = column_name )
+  new_col = unlist(purrr::pmap(args_list, count_finder))
+  data_new_hs <- data_new_hs %>%
+    dplyr::mutate(!!column_name := new_col)
+}
+columns_end <- ncol(data_new_hs)
+hard_skills_by_location <- data_new_hs %>%
+  dplyr::select(c(1, 3:columns_end)) %>%
+  tidyr::gather(c(3:columns_end-1), key = "Skill", value = "count") %>%
+  dplyr::group_by(state, Skill) %>%
+  dplyr::summarize("skill_count" = sum(count)) %>%
+  dplyr::filter(Skill != "r") %>%
+  dplyr::arrange(desc(skill_count))
+hard_skills_by_location
+```
+
+Now that our data frames are in a more friendly format, let's begin our analysis on the soft skills groupings. Here we look at the top 8 states with the most job postings to begin our analysis. As these states also are from different geographic regions, we can assume that this data is a good representation for all the states we have collected data for.
+
+
+```{r fig.width=15, fig.height=5}
+cities <- c("NY", "TX", "CA", "WA", "IL", "MA", "CO", "VA")
+soft_skills <- soft_skills_by_location %>% dplyr::filter(state %in% cities)
+soft_skills %>%
+  ggplot() +
+  aes(x = reorder(Skill, skill_count), y = skill_count) +
+  geom_bar(stat = "identity") +
+  geom_text(aes(label = skill_count), position = position_dodge(.9), hjust = -.15) +
+  coord_flip() +
+  facet_wrap(~state) +
+  labs(title = "Soft Skills by State") +
+  ylab("Count of Skill Mentions") +
+  xlab("Skills") +
+  theme(
+     panel.background = element_rect(fill = "white", color = NA),
+     axis.ticks.y = element_blank(),
+    axis.text.x = element_blank(),
+    axis.ticks.x = element_blank(),
+     plot.title = element_text(hjust = 0.45)
+  )
+```
+
+Based on the charts above, one thing is VERY clear, communcation is the most valued soft skill in EVERY state. While there are some differences between the states and the order of importance they place on other skills, it is evident that work ethic, problem solving, and teamwork are also very highly valued skills in each state.
+Let's now turn our attention to the hard skills groupings to see if similar value is placed on certain skills in every state, or if there are significant differences between states.
+
+```{r fig.width=21, fig.height=10}
+hard_skills <- hard_skills_by_location %>% 
+  dplyr::filter(state %in% cities) %>% 
+  dplyr::filter(Skill != "r")
+hard_skills %>%
+  ggplot() +
+  aes(x = reorder(Skill, skill_count), y = skill_count) +
+  geom_bar(stat = "identity") +
+  geom_text(aes(label = skill_count), position = position_dodge(.9), hjust = -.15) +
+  coord_flip() +
+  facet_wrap(~state) +
+  labs(title = "Hard Skills by State") +
+  ylab("Count of Skill Mentions") +
+  xlab("Skills") +
+  theme(
+     panel.background = element_rect(fill = "white", color = NA),
+     axis.ticks.y = element_blank(),
+    axis.text.x = element_blank(),
+    axis.ticks.x = element_blank(),
+     plot.title = element_text(hjust = 0.45)
+  )
+```
+
+There is not a clear single winner in the hard skills like there was in the soft skills. In this case, it looks like there are four to five skills in each state that are most valued. These are AI/ML, scripting languages, business analytics & reporting, and statistics and advanced data mining. These four skills are the clear winners in every state, with some states also placing a heavy emphasis on algorithms, although the value appears to vary a bit between states.
+
+
+
+### 5.5 TF-IDF by city 
+
+TF-IDF stnads for term frequency-inverse document frequency
+
+#### Top Data Science soft Skills by location
+
+
+```{r data1-creation}
+data1 <- data
+# create city_state
+data1$city_state <- paste(data$location, sep = " ", data$state)
+```
+
+```{r data2-creation}
+data2 <- data1 %>% select (city_state, hard_skill_groupings_2, soft_skill_groupings_2)
+head(data2, 4)
+```
+
+```{r Analysis-1b-Soft-Skills-by-geo-location}
+head(as.data.frame(table(data2$city_state)) %>% arrange(desc(Freq)),10)
+# 1             New York NY   59
+# 2          Los Angeles CA   41
+# 3        San Francisco CA   40
+# 4              Chicago IL   30
+# 5            San Diego CA   30
+# 6               Boston MA   29
+# 7           Washington DC   28
+# 8          Santa Clara CA   16
+# 9               Denver CO   13
+# 10             Seattle WA   13
+```
+
+
+#### 5.5.1 Top Data Science soft Skills by location
+
+```{r newapproach, eval=FALSE, message=FALSE, warning=FALSE}
+#set.seed(4)
+# load library
+library(rJava)
+library(tidyverse)
+library(rvest)
+library(xml2)
+library(stringr)
+library(plyr)
+library(dplyr)
+library(tidyr)
+library(DT)
+library(data.table)
+library(rlist)
+library(pipeR)
+library(tm)
+library(broom)
+library(tidytext)
+library(NLP)
+
+#library(tm)
+# Control list to be used for all corpuses
+# control_list <- list( tolower = F)
+control_list <- list(weighting = weightTfIdf)
+# Trying to divide the corpus by cities
+ny <- data2[data2$city_state == "New York NY", 3]
+la <- data2[data2$city_state == "Los Angeles CA", 3]
+sf <- data2[data2$city_state == "San Francisco CA", 3]
+chi <- data2[data2$city_state == "Chicago IL", 3]
+sd <- data2[data2$city_state == "San Diego CA", 3]
+bos <- data2[data2$city_state == "Boston MA", 3]
+wdc <- data2[data2$city_state == "Washington DC", 3]
+sc <- data2[data2$city_state == "Santa Clara CA", 3]
+den <- data2[data2$city_state == "Denver CO", 3 ]
+sea <- data2[data2$city_state == "Seattle WA", 3]
+cities <- c(ny, la, sf, chi, sd, bos, wdc, sc, den, sea)
+corpus.city <- VCorpus(VectorSource(cities))
+#list(c("Teamwork", "Problem-Solving","Creativity", "Work Ethic", "Interpersonal Skills", "Time Management", "Leadership", "Communication Skills"))
+tdm.city <- tm::DocumentTermMatrix(corpus.city , control = control_list)
+                                # list(c("Teamwork", "Problem-Solving","Creativity", "Work Ethic", "Interpersonal Skills", "Time Management", "Leadership", "Communication Skills")))
+#list(c("Teamwork", "Problem-Solving","Creativity", "Work Ethic", "Interpersonal Skills", "Time Management", "Leadership", "Communication Skills")))
+# Make city dataframe
+df_city <- tidy(tdm.city)
+df_city
+df_city$document <- plyr::mapvalues(df_city$document,
+                                          from = 1:10,
+                                          to = c("NY", "LA", "SF",
+                                                 "CHI", "SD", "BOS",
+                                                 "WDC", "SC", "DEN", "SEA"
+                                                )
+                             )
+showgraph <- function(i) {
+df_city %>%
+  dplyr::arrange(desc(count)) %>%
+  # mutate(word = factor(term, levels = rev(unique(term)) ),
+  dplyr::mutate(word = factor(Soft_skills_levels[[i]], levels = Soft_skills_levels[[i]] ),
+           city = factor(document, levels = c("NY", "LA", "SF",
+                                                 "CHI", "SD", "BOS",
+                                                 "WDC", "SC", "DEN", "SEA"
+                                             )
+                        )
+        ) %>%
+  dplyr::group_by(document) %>%
+  dplyr::top_n(6, wt = count) %>%
+  ungroup() %>%
+  ggplot2::ggplot(aes(word, count, fill = document)) +
+  geom_bar(stat = "identity", alpha = 0.8, show.legend = FALSE) +
+  labs(title = "Top Data Science Soft Skills by City",
+       x = "Soft Skills Groupings", y = "TF-IDF") +
+  facet_wrap(~city, ncol = 2, scales = "free_y") +
+  coord_flip()
+} 
+showgraph(1)
+showgraph(2)
+showgraph(3)
+showgraph(4)
+showgraph(5)
+showgraph(6)
+showgraph(7)
+showgraph(8)
+```
+
+
+
+#####  Analysis for soft skills  
+
+
+Top Data Science Soft Skills - Denver is the city that looks for basically all area of soft skills, including teamwork, Problem Solving, Intellectual Curiosity, work ethic, interpersonal skills, time management, leadership, and communication skills. On the other hand, Los Angeles, CA is the city where it is most leniant in terms of soft skills. 
+
+
+#### 5.5.2 Top Data Science hard Skills by location
+
+```{r new-approach, eval=FALSE, message=FALSE, warning=FALSE}
+#library(tm)
+# Control list to be used for all corpuses
+# control_list <- list( tolower = F)
+control_list <- list(weighting = weightTfIdf)
+# Trying to divide the corpus by cities
+ny <- data2[data2$city_state == "New York NY", 2]
+la <- data2[data2$city_state == "Los Angeles CA", 2] 
+sf <- data2[data2$city_state == "San Francisco CA", 2] 
+chi <- data2[data2$city_state == "Chicago IL", 2] 
+sd <- data2[data2$city_state == "San Diego CA", 2] 
+bos <- data2[data2$city_state == "Boston MA", 2] 
+wdc <- data2[data2$city_state == "Washington DC", 2] 
+sc <- data2[data2$city_state == "Santa Clara CA", 2]
+den <- data2[data2$city_state == "Denver CO", 2 ] 
+sea <- data2[data2$city_state == "Seattle WA", 2]
+cities <- c(ny, la, sf, chi, sd, bos, wdc, sc, den, sea)
+corpus.city <- VCorpus(VectorSource(cities))
+#list(c("Teamwork", "Problem-Solving","Creativity", "Work Ethic", "Interpersonal Skills", "Time Management", "Leadership", "Communication Skills"))
+tdm.city <- DocumentTermMatrix(corpus.city , control = control_list)
+                                # list(c("Teamwork", "Problem-Solving","Creativity", "Work Ethic", "Interpersonal Skills", "Time Management", "Leadership", "Communication Skills")))
+#list(c("Teamwork", "Problem-Solving","Creativity", "Work Ethic", "Interpersonal Skills", "Time Management", "Leadership", "Communication Skills")))
+# Make city dataframe
+df_city <- tidy(tdm.city)
+df_city
+df_city$document <- mapvalues(df_city$document,
+                                          from = 1:10,
+                                          to = c("NY", "LA", "SF",
+                                                 "CHI", "SD", "BOS",
+                                                 "WDC", "SC", "DEN", "SEA"
+                                                )
+                             )
+showgraph2 <- function(i) {
+df_city %>%
+  arrange(desc(count)) %>%
+  mutate(word = factor(hard_skill_levels[[i]], levels = hard_skill_levels[[i]] ),
+           city = factor(document, levels = c("NY", "LA", "SF",
+                                                 "CHI", "SD", "BOS",
+                                                 "WDC", "SC", "DEN", "SEA"
+                                             )
+                        )
+        ) %>%
+  group_by(document) %>%
+  top_n(3, wt = count) %>%
+  ungroup() %>%
+  ggplot(aes(word, count, fill = document)) +
+  geom_bar(stat = "identity", alpha = 0.8, show.legend = FALSE) +
+  labs(title = "Top Data Science Hard Skills by City",
+       x = "Hard Skills Groupings", y = "TF-IDF") +
+  facet_wrap(~city, ncol = 2, scales = "free_y") +
+  coord_flip()
+}
+showgraph2(1)
+showgraph2(2)
+showgraph2(3)
+showgraph2(4)
+showgraph2(5)
+showgraph2(6)
+showgraph2(7)
+showgraph2(8)
+showgraph2(9)
+showgraph2(10)
+showgraph2(11)
+showgraph2(12)
+showgraph2(13)
+showgraph2(14)
+```
+
+
+
+
+#####  Analysis for hard skills    
+
+
+Top Data Science Hard Skills - Seattle, Denver(CO), Santa Clara (CA), Washington(DC), San Deigo rounds out the top 5 in terms of hard skills requirement. Big cities like SF, NY, LA turn out to be not stressing all the Top Data Science Hard Skills as the top skills found in their job postings. That tells me that they have a more diverse criteria in terms of variety of positions that are hired for Data Scientists and they hire more data scientists, in general. They don't match neccessarily all the keywords that we have for the hard skills groupings we listed. The 14 hard skills groupings that we used are 1) Cloud Computing, 2) Open Source Management Systems & Automations, 3) Web Analytics, 4) 5) Product Analytics, 6) Visualizations, 7) AI & ML and Algorithms, 8) Business Analytics & Reporting, 9) Scripting Languages, 10) Statistics & Advanced Data Mining, 11) Business Understanding, 12) API, 13) Business Intelligence, and 14) Data Model & Database Systems. Unfortunately, there is not a clear winner of Top Data Science Hard Skill Groupings that would be uanimously needed for all top 10 job markets at the city level. 
+
+## 6. Conclusion
+
+###  What are the most valued data science skills?
+
+#### Most in-demand
+
+* Hard skills: 
+
+    + AL/ML and Algorithms - AI, NLP/ML, Tensorflow
+    + Business Analytics & Reporting - analytic solutions, analysis, Reporting
+    + Scripting Languages - SQL, Python, Hive
+    + Statistics and Advanced Data Mining - predictive modeling, Decision Tree/Random Forest, K-means clustering, Regression
+    
+* Soft skills: 
+
+    + Communication Skills - communicate well, excellent communication skills.  
+    
+The list of most in-demand skills is consistent with the functional application of the service and work of a typical data scientist provides. The list also tends to be very practical hands-on programming and technological appliations that resonate with the public image perceived in the society. For example, Statistics and Advanced Data Mining entails Regression, Decision Tree/Random Forests as well as K-means clustering analysis. At the end of the day, the ability to bring the research capability with data science or data-related products are keys to the success of businesses of any sizes. So it's not hard to fathom these types of skills intersect with the functional areas of a typical data scientist and business applications. 
+While there are many free online MOOCs available in the marketplace like Coursera, Udemy, datacamp, and codecademy, there are an implicit demand for data scientists who demonstrated a track record of multi-year success in the space. One thing that needs to be pointed out is that there is a demonstrated proliferation of demands (as compared to a relative obscurity in the past) that is observed in the Open Source Management Systems & Automations like github or CRAN exemplifies the appetite for employers to look for builders and collaborators who has a thirst for code-sharing and real-time code collaborations and expertise in github and git in any scientific / engineering effort.
+
+The final takeaway is Cloud Computing, very much like OpenSource Systems & Automations, became a recent set of skills that are pursued by employers for DS positions. (AWS) SageMaker Studio and (Azure) Machine Learning Studio are some of the new comers in terms keywords that are needed. They popped into the scene in 2019 and as you saw in the very last bar chart in 5.3.1, it's sitting at a decent 4.9%, which is at the 7th place among all the top Data Science Hard Skill Groupings.
+ 
++ Total Job post:
+
+From the map, we see number of highest oppertunity state for Data scientist and number of lowest oppertunity for job in data science. The color volume dark means number of job post is high and color is white means very less job post.
+
++ Granular data top skills:
+
+From the top 10 hard and soft skills data we see, mostly used technology, script language and platform for data science. As well as we come to know, soft skills also highly essential for a data scientist. Communication is most prominent soft skills in the data science field.
+
+
++ State Analysis Conclusion:
+
+We found that for both the hard and soft skills, equal value is placed on the top four or five skills from from each category in every state. This tells us that while there are differences between the states, we can be confident that there are certain skillsets that all employers are looking for.
+
+ 
+
+

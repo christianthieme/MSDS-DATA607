@@ -1,0 +1,152 @@
+---
+title: "Project_3"
+author: "Nilsa Bermudez"
+date: "3/12/2020"
+output:
+  html_document:
+    toc: true
+    toc_float: true
+    theme: cosmo
+    highlight: zenburn
+---
+
+library(stringr);
+library(dplyr);
+library(DBI);
+library(rquery);
+library(RMysql);
+library(tidyverse);
+library(splitstackshape);
+library(sqldf);
+library(ggplot2);
+
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+Data Storage:
+
+Job data was consumed stored in a staging table and then several tables were normalized.
+A denormalized table for the skills was created for the initial ggplot view of the top 10 skills.
+I found a great new library to use for this: splitstackshape
+
+Obstacles overall:
+•	My local db wouldn’t allow for an insert – had to turn on the option on MySQL to SET GLOBAL local_infile = true;
+•	R gave an error for the id column when inserting data.  The workaround was to leave out the auto increment id column and alter the table after the upload.
+**I attempted to use the google cloud and I had connectivity issues - this is a goal for a future project.
+## Read the csv into joblistings dataframe
+```{r ImportFile}
+#joblistings <- read.table("https://raw.githubusercontent.com/nilsabermudez/607/master/dataClean.csv", header=TRUE, sep=",")
+joblistings <- read.table("https://raw.githubusercontent.com/SubhalaxmiRout002/Data-607-Project-3/master/data.csv", header=TRUE, sep=",")
+```
+## Must rename the columns before the data dump
+```{r RenameColumns}
+names(joblistings) <- c("JobTitle","City","State","CompanyName","JobDescription","HardSkill","HardSkill2","SoftSkill","SoftSkill2","MinimumSalary","MaximumSalary")
+```
+## Take all the data and dump it into a jobs table in order to store the whole recordset.
+## (I had to turn on the option on MySQL to SET GLOBAL local_infile = true;)
+```{r ConnectCreate}
+con =  DBI::dbConnect(RMySQL::MySQL(), user="root", password="root", dbname="jobsdb", host="localhost")
+#SET GLOBAL local_infile = true;
+DBI::dbGetQuery(con, "DROP TABLE IF EXISTS jobs;")
+DBI::dbGetQuery(con, "CREATE TABLE jobs(
+  JobId int auto_increment primary key,
+  JobTitle nvarchar(255),
+  City nvarchar(25),
+  State nvarchar(10),
+  CompanyName nvarchar(255),
+  JobDescription nvarchar(255),
+  HardSkill nvarchar(255), 
+  HardSkill2  nvarchar(255), 
+  SoftSkill nvarchar(255), 
+  SoftSkill2 nvarchar(255), 
+  MinimumSalary INT,
+  MaximumSalary INT
+  );" )
+DBI::dbWriteTable(con, "jobs", joblistings, overwrite = TRUE)
+DBI::dbExecute(con,"alter table jobs add JobId INT(10) AUTO_INCREMENT PRIMARY KEY;")
+DBI::dbExecute(con,"alter table jobs drop row_names;")
+query<-("select jobid, HardSkill from jobs;")
+jobs <- RMySQL::fetch( DBI::dbSendQuery(con, query), n=Inf)
+jobs <- DBI::dbSendStatement(conn = con, query)
+jobs
+DBI::dbGetRowsAffected(jobs)
+DBI::dbClearResult(jobs)
+```
+```{r CreateTheJobStatesTable}
+DBI::dbGetQuery(con, "DROP TABLE IF exists JobStates;")
+query <- "select distinct State from jobs"
+results <- DBI::dbSendQuery(con, query)
+db_results <- DBI::dbFetch(results)
+DBI::dbWriteTable(con, "JobStates", db_results, overwrite=TRUE)
+DBI::dbExecute(con,"alter table JobStates add StateId INT(10) AUTO_INCREMENT PRIMARY KEY;")
+```
+# Split out the Hardskills
+```{r InsertDataIntoSkillsTable}
+DBI::dbGetQuery(con, "DROP TABLE IF EXISTS skillsforggplot;")
+query <- "select jobid, HardSkill2 as Skill, 'HardSkill' as SkillType from jobs"
+results <- DBI::dbSendQuery(con, query)
+db_results <- DBI::dbFetch(results)
+DBI::dbClearResult(results)
+RS <- splitstackshape::cSplit(db_results, "Skill", ",", "long")
+RS
+DBI::dbWriteTable(con, "skillsforggplot", RS, overwrite = TRUE)
+DBI::dbClearResult(results)
+```
+# Split out the SoftSkills
+```{r InsertDataIntoSkillsTable2}
+ query2 <- "select jobid, SoftSkill2 as Skill, 'SoftSkill' as SkillType from jobs"
+ results2 <- DBI::dbSendQuery(con, query2)
+ db_results2 <- DBI::dbFetch(results2)
+  DBI::dbClearResult(results2)
+ 
+ RS2 <- splitstackshape::cSplit(db_results2, "Skill", ",", "long")
+ RS2
+ DBI::dbWriteTable(con, "skillsforggplot", RS2, append = TRUE)
+ 
+```
+ 
+```{r CreateTheDistinctSkillsTable}
+DBI::dbGetQuery(con, "DROP TABLE IF exists DistinctSkills;")
+query3 <- "select distinct Skill from skillsforggplot"
+results <- DBI::dbSendQuery(con, query3)
+db_results <- DBI::dbFetch(results)
+DBI::dbWriteTable(con, "DistinctSkills", db_results, overwrite=TRUE)
+#DBI::dbExecute(con,"alter table DistictSkills add SkillId INT(10) AUTO_INCREMENT PRIMARY KEY;")
+```
+# Count of all skills by State and Skill
+```{r}
+ queryStateSkillsCount <-"
+select jobs.state, skillsforggplot.skill, count(*) as Count
+          from jobs 
+          right outer join skillsforggplot on skillsforggplot.jobid=jobs.jobid 
+          inner join jobstates on jobstates.state=jobs.state
+                    where jobs.state is not null and skillsforggplot.skill is not null
+          group by state, skillsforggplot.skill"
+ QryResults <- DBI::dbSendQuery(con, queryStateSkillsCount)
+QryResults1 <- DBI::dbFetch( QryResults)
+head(QryResults1)
+  DBI::dbClearResult(QryResults)
+```
+# Count of all skills by Skill and Type
+```{r}
+querySkillsTypeCount <-"select skillsforggplot.skill, skillsforggplot.SkillType,  count(*) as Count
+                        from jobs 
+                        right outer join skillsforggplot on skillsforggplot.jobid=jobs.jobid
+                        where skillsforggplot.skill <>''
+                        group by skillsforggplot.skill, skillsforggplot.SkillType order by 3 desc"
+QryResultsSkills <- DBI::dbSendQuery(con, querySkillsTypeCount)
+QryResults2 <- DBI::dbFetch( QryResultsSkills)
+head(QryResults2)
+  DBI::dbClearResult(QryResultsSkills)
+```
+```{r}
+top10 <- head(dplyr::arrange(QryResults2,desc(Count)), n = 10)
+top10
+  ggplot2::ggplot(data=top10, ggplot2::aes(x=reorder(skill, -Count), y=Count)) +
+  ggplot2::geom_bar(stat="identity") +
+  ggplot2::labs(x="Skills",y="Frequency") +
+  ggplot2::ggtitle("Most Frequently Requested DS Skills") +
+  ggplot2::theme(axis.text.x = ggplot2::element_text(angle = 90, vjust = 0.5, hjust=1))
+```
