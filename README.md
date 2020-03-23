@@ -23,3 +23,6 @@ https://rpubs.com/christianthieme/582571
 
 7. Week 7 Assignment - Working with HTML, XML, and JSON with R: 
 https://rpubs.com/christianthieme/585086
+
+8. Week 8 Project 3: Scraping Indeed.com data and performing analysis on most valued Data Science skills:
+https://rpubs.com/Subhalaxmi/588026
