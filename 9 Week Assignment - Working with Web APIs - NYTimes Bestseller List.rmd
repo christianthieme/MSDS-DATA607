@@ -1,0 +1,89 @@
+---
+title: "Week 9 Assignment - Working with Web APIs"
+author: "Christian Thieme"
+date: "3/24/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Introduction
+
+Being able to interact with and extract data from API's is a critical skill for a data scientist. For this project, I will work with The New York Times web site API. In looking at the documentation available to developers, there are several different APIs to choose from. As a father with two young daughters who love to read, the Books API caught my attention. The goal of this project will be to get the current list of bestselling children's books. 
+
+In order access The New York Times API, you need to request an API key, which was a simple and painless process. With key in hand, we're ready to get started. Let's load the libraries we will need for this project. 
+
+```{r}
+library(httr)
+library(tidyverse)
+library(jsonlite)
+library(xml2)
+```
+
+
+According to the NY Times API documentation for the Books API, all URI's are relative the following path: https://api.nytimes.com/svc/books/v3. Any API calls we make will start with this path, and then we will add additional arguments as we navigate to different sections of data. Another item of note is, based on the documentation, it looks like responses will be in JSON format. 
+
+## Working with the Books API
+
+In order to get access to the NY Times Bestseller list for Children's Books, we first need to specify the exact list we want to look at. To do this we can make a request to the List Names service within the API. This service returns a list of all the NYT Best Sellers lists. It also includes other helpful information such as how often the list is updated and when it was last updated. 
+
+To get started, I'll make a call to the List Names service so we can see what lists are available for us to use in our next step. The call will look something like this: Base URL/lists/names?api-key. As the response will be in JSON, we will use the fromJSON function from the jsonlite library to make this call. The call returns a list, with the second item of the list being the data we requested. I'll index the list for the second item, and then us the as.data.frame() function to convert it to a data frame. 
+
+```{r}
+lists <- jsonlite::fromJSON("https://api.nytimes.com/svc/books/lists/names.json?api-key=RrYetImEkeHEqaKXs7n4ZLZ1bhmr7JsO")
+lists <- as.data.frame(lists[2])
+lists
+```
+
+It looks like there are a total of 59 rows, so let's look at the unique values from the body.results.list_name column to see what lists involve children's books.
+
+```{r}
+unique(lists$body.results.display_name)
+```
+
+In looking at the above list, "Children's Picture Books" looks like just what I am looking for. Let's filter down the list data frame so we can see the specifics on how often it is updated and other information we will need to make the API call to get the bestseller list for this "Children's Picture Books" list.
+
+```{r}
+ lists %>% filter(body.results.display_name == "Children’s Picture Books")
+```
+
+In the output above, in the column "body.results.updated", we can see that this list is updated weekly which means that our results will be *very* fresh.  
+
+To see the books in this best seller list for "Children's Picture Books", we'll have to make a call to the List Data Service using the value from the "body.results.list_name_encoded" column, which is "picture-books". We'll make a call, like the call we made above, however, this time we'll specify the date range of the list we are after. Looking at the API documentation, it says we can use "current" if we want to get the latest list, which we do. Additionally, the List Data service requires that we pass in the name of the list we are interested in. The call will look something like this: Base URL/{date range}/{best seller list name}?api-key
+
+```{r}
+cb <- fromJSON("https://api.nytimes.com/svc/books/v3/lists/current/picture-books.json?api-key=RrYetImEkeHEqaKXs7n4ZLZ1bhmr7JsO")
+children_books <- as.data.frame(cb$results$books)
+children_books
+```
+
+In looking at the response above, we see that this response is rich with data. We can see the top 10 sellers' title, description, author, ISBN, as well as their current rank and previous week's rank. You will also see that there is a "price" column, however, it has 0's for every entry, which we know can't be correct. Fortunately for us, one of the columns "amazon_product_url" contains the web address of the book on Amazon. We can use this URL to scrape page to extract the price for each book and add it to our data frame. I will use the xml2 package to perform the scraping. As we are only grabbing one item off of each page, this should be fairly simple. I will first create a function to scrape the price from each page, then I will apply that function to each row of the "amazon_product_url" with the purrr::map_chr() function. 
+
+```{r}
+prices <- c()
+
+scraper_func <- function(x) {
+  book_page <- xml2::read_html(x)
+  book_price <- book_page %>% rvest::html_nodes("#buyNewSection .a-text-normal") %>%
+  rvest::html_text()
+  prices <- c(prices, book_price)
+}
+
+childrens_book_prices <- purrr::map_chr(children_books$amazon_product_url, scraper_func)
+childrens_book_prices
+```
+
+Now that we have the data, let's go ahead and add it to our data frame and remove the other price column. To show the final output, we'll show only a handful of columns. 
+
+```{r}
+children_books <- children_books %>% mutate("amazon_price" = childrens_book_prices) %>% select(-price)
+children_books %>% select( title, author, amazon_price)
+```
+
+# Conclusion
+
+As mentioned above, working with API's is a critical skill for data scientists. In addition, understanding the response data is paramount. It is important to have an understanding of data structure formats such as XML and JSON in order to appropriately work with the response data. In our case, our responses came in JSON format, but we could have just as easily worked with the data if it had come back as XML.
+
+
