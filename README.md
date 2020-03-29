@@ -29,3 +29,6 @@ https://rpubs.com/Subhalaxmi/588026
 
 9. Week 9 Assignment: Working with Web APIs: 
 http://rpubs.com/christianthieme/590344
+
+9. Week 9 Tidyverse Create assignment - Using Purrr Map() - Lose the For Loop:
+http://rpubs.com/christianthieme/589762
