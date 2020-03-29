@@ -1,0 +1,108 @@
+---
+title: 'Tidyverse CREATE Assignment: purrr::map() Functions'
+author: "Christian Thieme"
+date: "3/24/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Using purrr::map() Instead of For Loops in R
+
+In many other programming languages, for loops are extremely important. However, R is a functional programming language, which means that R has the ability "to wrap up for loops in a function, and call that function instead of using the for loop directly" (R for Data Science, pg. 322).
+
+Many people familiar with R are fimiliar with the apply family of functions in base R (i.e. apply(), vapply(), lapply()). These functions, while incredibly useful, can be inconsistent in their application and can make understanding/using them more difficult and often intimidating. This is where the purrr functions come in. Similar to the apply functions from base R, these functions allow you to apply a function to all elements of a vector. This library was built with consistency in mind, making it easier to learn and use than its apply counterpart. Additionally, this library is part of Tidyverse and so can be used in conjunction with all the other functions that are part of Tidyverse.
+
+There many different functions inside of the purrr library. For this vignette I will explain just two: 
+
+* purrr:map() - this function allows you to apply a function with a single argument to a vector
+* purrr:pmap() - this function is a variation of map() that allows you to apply a function with multiple arguments to a vector
+
+In order to demonstrate how these functions work, we will work with the most recent COVID-19 data set as of March 25, 2020, provided by the Johns Hopkins Whiting School of Engineering. This data set can be found [here](https://raw.githubusercontent.com/CSSEGISandData/COVID-19/master/csse_covid_19_data/csse_covid_19_daily_reports/03-24-2020.csv) as part of this [GitHub](https://github.com/CSSEGISandData/COVID-19).
+
+Before jumping in, I'll load the necessary libraries as well as the data. I'll also remove some columns that we won't be using in this demonstration. 
+
+```{r message=FALSE, warning=FALSE}
+library(tidyverse)
+library(stringr)
+covid <- readr::read_csv("https://raw.githubusercontent.com/CSSEGISandData/COVID-19/master/csse_covid_19_data/csse_covid_19_daily_reports/03-25-2020.csv")
+covid$Province_State <- replace_na(covid$Province_State, "")
+covid <- covid %>% select(Province_State, Country_Region, Lat, Long_, Confirmed, Deaths) %>% arrange(desc(Confirmed)) 
+
+head(covid)
+```
+
+*Note: There may be better, more elegant ways to do what I am demonstrating without using the purrr::map() and purrr:::pmap() functions, however, for the sake of example, I will use these functions.*
+
+## purrr:map()
+
+As an example, let's say that we are curious about what percentage of total Confirmed cases each location makes up. To find this out we want to add a new column called "Percent_of_Total" that will hold the calculation. One way to do this would be to use the purrr::map() function. This funtion will allow us to apply any **single argument function** we create to every row of our data set, in essence, doing the same work a for loop would do, but in a functional way. To accomplish our goal we will need to create a function that looks at a single row's Confirmed value and divides it by the total sum of the Confirmed values and apply it to every row of the vector. 
+
+Let's first create our function:
+
+```{r}
+#estimator function
+percent_of_total <- function(x) {
+  return(x/sum(x) * 100)
+}
+```
+
+The funciton above takes an argument "x" and divides it by the sum of "x" (sum of the entire vector) and then multiplies that value by 100. This will calculate our percentage. 
+
+As mentioned above, one of the benefits of using the purrr package is that it can be used with other Tidyverse functions. To create our new column, we will use dplyr::select() to select the Confirmed column. Next, we will *apply* the function to that column (vector) by using purrr::map(), passing in our percent_of_total function as an argument.  
+
+```{r}
+new_col <- covid %>% dplyr::select(Confirmed) %>% purrr::map(percent_of_total)
+class(new_col)
+new_col[[1]][1:10]
+```
+
+In the output above you will notice that **the output of purrr::map() is a list**. If we want to add these percentages as a new column in our data frame, we can use the dplyr::mutate() function in combination with unlist(). Unlist in this instance is simply changing the list to a vector, allowing it to be easily added to the data frame. 
+
+```{r}
+covid <- covid %>% mutate("Percent_of_Total" = round(unlist(new_col),2))
+covid
+```
+
+Looking at the data frame above, you can see that utilizing the purrr::map() function enabled us to create the Percent_of_Total column very easily and without a for loop.
+
+### purrr:pmap()
+
+What happens if you have a function with multiple arguments that you would like to apply to a vector? This is where purrr::pmap() comes in. This function is a variation of purrr:map() but allows you to work with functions with any number of variables as arguments. The one change you will need to make is that you will have to pass in a list() with the function arguments to purrr:pmap(). I will demonstrate this below with an example. 
+
+Let's say for example, that we want to create a new column where we concatenate the Province_State column with the Country_Region column. More specifically, for those locations with both a Province_State and Country_Region value, we want to seperate the concatenated value with a comma. If there is no Province_State value, then we just want to return the Country_Region value. We can do this easily with purrr:pmap(). We'll first create a function called "add_comma" that takes two arguments, x and y, which will end up being the Province_state column and the Country_Region column, respectively. Inside the function, I use an if statement to see if x (Province_State) is empty. If it is, then I just return y (Country_Region). If it's not empty, then I concatenate the two columns together, seperated by a comma. We will apply this function to each row in the same way we did in the previous example with two distinct differences. First, we'll need to create a list of arguments we want to pass to the function, here I'm calling it "arg_list". Second, instead of chaining funtions like we did before, we will make this code more consise by directly placing purrr::pmap as an argument to the dplyr::mutate function. In order to do this, we need to first pass the argument list into purrr::pmap, then we need to pass the function we wish to call. As before, pmap, also returns a list, so we will need to call unlist() to tranform the list to a vector in order to create the new column in our data frame. 
+
+```{r}
+add_comma <- function(x, y) {
+  if (x == "") {
+    col_val <- y
+  } else {
+    col_val <- stringr::str_c(x, y, sep = ", ")
+  }
+  return(col_val)
+}
+
+arg_list <- list(x = covid$Province_State,  y = covid$Country_Region )
+covid <- covid %>% mutate("Location" = unlist(purrr::pmap(arg_list, add_comma)))
+head(covid$Location, 10)
+
+``` 
+
+Let's take a look at the final data frame reordered and cleaned up:
+
+```{r}
+covid <- covid %>% select(Location, Lat, Long_, Confirmed, Percent_of_Total, Deaths)
+head(covid)
+```
+
+As you can see above, the purrr::pmap function worked seamlessly. As I mentioned earlier, there are many other functions in the purrr library. Many of them allow you to return specific data type objects instead of lists such as map_int(), map_chr(), pmap_int(), and pmap_char(). Among other applications, these other functions can make it so you don't need to use the unlist() function when working with the output. 
+
+The purrr library is an incredible tool to help make your code faster and more efficient by eliminating for loops and taking advantage of R's functional abilities. 
+
+
+
+
+
+
