@@ -1,0 +1,428 @@
+---
+title: "Week 10 Assignment DATA607 - Sentiment Analysis"
+author: "Christian Thieme"
+date: "4/2/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Sentiment Analysis
+
+"Sentiment Analysis is the process of computationally identifying and categorizing opinions in a piece of text, especially in order to determine whether the writer's attitude towards a particular topic, product, etc. is positive, negative, or neutral." - Oxford Dictionary
+
+The purpose of this project is two-fold: First, to take a deep dive into the mechanics and application of Sentiment Analysis by following an example provided by Juilia Silge and David Robinson from their book *"Text Mining with R - A Tidy Approach"*. Second, to choose another corpus and incorporate another lexicon, not used in the example below, to perform sentiment analysis. 
+
+## Part I - The Example
+
+The following code is from Chapter 2  of *"Text Mining with R - A Tidy Approach"*, entitled "Sentiment Analysis with Tidy Data". A full citation of the code can be found at the end of the code excerpt. 
+
+2.1 - The Sentiments Dataset
+
+```{r message=FALSE, warning=FALSE}
+library(janeaustenr)
+library(tidyverse)
+library(stringr)
+library(tidytext)
+```
+
+```{r}
+library(tidytext)
+
+get_sentiments("afinn")
+```
+
+```{r}
+get_sentiments("bing")
+```
+
+```{r}
+get_sentiments("nrc")
+```
+
+2.2 Sentiment Analaysis with Inner Join
+
+```{r}
+tidy_books <- austen_books() %>%
+  group_by(book) %>%
+  mutate(linenumber = row_number(),
+         chapter = cumsum(str_detect(text, regex("^chapter [\\divxlc]", 
+                                                 ignore_case = TRUE)))) %>%
+  ungroup() %>%
+  unnest_tokens(word, text)
+tidy_books
+```
+
+```{r}
+nrc_joy <- get_sentiments("nrc") %>% 
+  filter(sentiment == "joy")
+
+tidy_books %>%
+  filter(book == "Emma") %>%
+  inner_join(nrc_joy) %>%
+  count(word, sort = TRUE)
+```
+
+```{r}
+library(tidyr)
+
+jane_austen_sentiment <- tidy_books %>%
+  inner_join(get_sentiments("bing")) %>%
+  count(book, index = linenumber %/% 80, sentiment) %>%
+  spread(sentiment, n, fill = 0) %>%
+  mutate(sentiment = positive - negative)
+jane_austen_sentiment
+```
+
+```{r fig.width=10}
+library(ggplot2)
+
+ggplot(jane_austen_sentiment, aes(index, sentiment, fill = book)) +
+  geom_col(show.legend = FALSE) +
+  facet_wrap(~book, ncol = 2, scales = "free_x")
+```
+
+2.3 Comparing the three sentiment dictionaries
+
+```{r}
+pride_prejudice <- tidy_books %>% 
+  filter(book == "Pride & Prejudice")
+
+pride_prejudice
+```
+
+
+```{r}
+afinn <- pride_prejudice %>% 
+  inner_join(get_sentiments("afinn")) %>% 
+  group_by(index = linenumber %/% 80) %>% 
+  summarise(sentiment = sum(value)) %>% 
+  mutate(method = "AFINN")
+
+bing_and_nrc <- bind_rows(pride_prejudice %>% 
+                            inner_join(get_sentiments("bing")) %>%
+                            mutate(method = "Bing et al."),
+                          pride_prejudice %>% 
+                            inner_join(get_sentiments("nrc") %>% 
+                                         filter(sentiment %in% c("positive", 
+                                                                 "negative"))) %>%
+                            mutate(method = "NRC")) %>%
+  count(method, index = linenumber %/% 80, sentiment) %>%
+  spread(sentiment, n, fill = 0) %>%
+  mutate(sentiment = positive - negative)
+```
+
+```{r fig.width= 10}
+bind_rows(afinn, 
+          bing_and_nrc) %>%
+  ggplot(aes(index, sentiment, fill = method)) +
+  geom_col(show.legend = FALSE) +
+  facet_wrap(~method, ncol = 1, scales = "free_y")
+```
+
+```{r}
+get_sentiments("nrc") %>% 
+     filter(sentiment %in% c("positive", 
+                             "negative")) %>% 
+  count(sentiment)
+
+get_sentiments("bing") %>% 
+  count(sentiment)
+```
+
+2.4 Most Common Positive and Negative Words
+
+```{r}
+bing_word_counts <- tidy_books %>%
+  inner_join(get_sentiments("bing")) %>%
+  count(word, sentiment, sort = TRUE) %>%
+  ungroup()
+
+bing_word_counts
+```
+
+```{r}
+bing_word_counts %>%
+  group_by(sentiment) %>%
+  top_n(10) %>%
+  ungroup() %>%
+  mutate(word = reorder(word, n)) %>%
+  ggplot(aes(word, n, fill = sentiment)) +
+  geom_col(show.legend = FALSE) +
+  facet_wrap(~sentiment, scales = "free_y") +
+  labs(y = "Contribution to sentiment",
+       x = NULL) +
+  coord_flip()
+```
+
+2.5 Wordclouds
+
+```{r}
+library(wordcloud)
+
+tidy_books %>%
+  anti_join(stop_words) %>%
+  count(word) %>%
+  with(wordcloud(word, n, max.words = 100))
+```
+
+```{r}
+library(reshape2)
+
+tidy_books %>%
+  inner_join(get_sentiments("bing")) %>%
+  count(word, sentiment, sort = TRUE) %>%
+  acast(word ~ sentiment, value.var = "n", fill = 0) %>%
+  comparison.cloud(colors = c("gray20", "gray80"),
+                   max.words = 100)
+```
+
+________________________________________________________________________________________
+
+The code above was sourced from:
+
+* Title:  *"Text Mining with R - A Tidy Approach"* 
+* Chapter: Chapter 2: Sentiment Analysis with Tidy Data
+* Authors: Juilia Silge and David Robinson
+* Date: 2017
+* Availability: [https://www.tidytextmining.com/sentiment.html](https://www.tidytextmining.com/sentiment.html) 
+
+________________________________________________________________________________________
+
+
+### Part II - Taking the Reins
+
+For part II of this project, I have chosen to analyze text from the book *"The Count of Monte Cristo"* by Alexandre Dumas, which was written in 1844. To get the text of this book, I used the gutenbergr library, which allows for the search and download of public domain texts. 
+
+```{r message=FALSE}
+library(gutenbergr)
+```
+
+```{r message=FALSE}
+count_of_monte_cristo <- gutenberg_download(1184) 
+```
+
+Now that we have the book downloaded, let's take a look at its structure.
+
+```{r}
+count_of_monte_cristo
+```
+
+In looking at the above output, this text is not in a "tidy text" format and will need to be transformed before analysis can take place. In addition, the first 159 lines of this text contain the table of contents, so we will exclude those lines. We will use the `unnest_tokens()` function from the tidytext library to break each word into an individual row. 
+
+```{r}
+#removing the first 159 rows of text which are table of contents
+count_cristo <- count_of_monte_cristo[c(159:nrow(count_of_monte_cristo)),]
+
+#using unnest_tokens to have each line be broken into indidual rows. 
+comc <- count_cristo %>% unnest_tokens(word, text)
+comc
+```
+
+Now that our text is "tidy", we can begin with our analysis. Having never read the book (I have seen the movie, though), I have a lot to discover. Let's first take a high level look at the text. Is this book more positive or negative?
+
+```{r message=FALSE}
+comc_sentiment <- comc %>% 
+  inner_join(get_sentiments("bing")) %>% 
+  count(sentiment) %>%
+  mutate(total = n / sum(n))
+
+ggplot(comc_sentiment) + 
+  aes(x = sentiment, y = total) + 
+  geom_col( ) + 
+  labs(title = "Overall Sentiment of Count of Monte Cristo") + 
+  ylab("Percent") + 
+  xlab("Sentiment") +
+  geom_text() + 
+  aes(label = round(total, 4)*100, vjust = -.5) +
+  theme(
+    panel.background = element_rect(fill = "white", color = NA),
+    axis.text.y = element_blank(), 
+    axis.ticks.y = element_blank(),
+    panel.grid = element_blank(),
+    plot.title = element_text(hjust = 0.5)
+  )
+```
+
+It appears that, on the whole, this book is split almost 50/50, both positive and negative. Let's see which words are adding most to the negative sentiments. 
+
+```{r message=FALSE}
+comc %>% 
+  inner_join(get_sentiments("bing")) %>% 
+  filter(sentiment == "negative") %>%
+  count(word, sentiment, sort = TRUE) %>% 
+  top_n(10) %>%
+  mutate(word = reorder(word, desc(n))) %>%
+  ggplot() + 
+  aes(x = word, y = n) +
+  labs(title = "Most Frequent Negative Words adding to Negative Sentiment") + 
+  ylab("Count") + 
+  xlab("Word") +
+  geom_col() + 
+  geom_text(aes(label = n, vjust = -.5)) + 
+  theme(
+    panel.background = element_rect(fill = "white", color = NA),
+    axis.text.y = element_blank(), 
+    axis.ticks.y = element_blank(),
+    plot.title = element_text(hjust = 0.5)
+  )
+```
+
+In looking at the above chart, it is clear that all of these words are adding to the negative sentiment of this novel. "Death" and "poor" definitely are affecting the sentiment more than other words. In looking at the chart above, we can also see that all of these words have been correctly categorized by the lexicon. Now let's take a look at the positive words to see if there are any specific words that stick out. 
+
+```{r message=FALSE}
+comc %>% 
+  inner_join(get_sentiments("bing")) %>% 
+  filter(sentiment == "positive") %>%
+  count(word, sentiment, sort = TRUE) %>% 
+  top_n(10) %>%
+  mutate(word = reorder(word, desc(n))) %>%
+  ggplot() + 
+  aes(x = word, y = n) +
+  labs(title = "Most Frequent Positive Words adding to Positive Sentiment") + 
+  ylab("Count") + 
+  xlab("Word") +
+  geom_col() + 
+  geom_text(aes(label = n, vjust = -.5)) + 
+  theme(
+    panel.background = element_rect(fill = "white", color = NA),
+    axis.text.y = element_blank(), 
+    axis.ticks.y = element_blank(),
+    plot.title = element_text(hjust = 0.5)
+  )
+```
+
+In contrast to the chart above of words with negative sentiment, it looks like the word "well" here is the obvious winner, adding the most positive sentiment to this novel. The word "like" also is adding to the positive sentiment above the other words as well.  
+
+Now that we've got a feel for the overall novel as a whole, let's see if we can get a feel for how the sentiment changes over the course of the novel. To do this, we'll experiment with a different lexicon, "afinn", which gives a value from -5 to 5 for each word. In addition, we'll start this analysis by looking at our original data set (excluding the table of contents), which shows full lines of text as seen below.
+
+```{r}
+count_cristo
+```
+
+We will create two new columns, one showing the original row number, and the other showing which chapter the row came from. This will give us the flexibility to look at the sentiment over the course of both chapters and line numbers. 
+
+```{r}
+comc_index <- count_cristo %>% 
+  filter(text != "") %>%
+  mutate(linenumber = row_number(),
+         chapter = cumsum(str_detect(text, regex("(?<=Chapter )([\\dII]{1,3})", ignore_case =  TRUE)))) 
+
+comc_index
+```
+
+Now, let's use `unnest_tokens` again to get this data set into a "tidy" structure and join in the "afinn" lexicon
+
+```{r}
+comc_tidy <- comc_index %>% 
+  unnest_tokens(word, text) %>% 
+  inner_join(get_sentiments("afinn")) 
+```
+
+Now that we have a clean data set, let's move forward with our analysis of sentiment change over the course of the book. As there are 117 chapters in *The Count of Monte Cristo*, let's break the book into sections of 2 chapters each so it's easier to visualize. 
+
+```{r fig.width=12, fig.height= 5}
+chapter_sentiment <- comc_tidy %>% 
+  select(chapter, value) %>%
+  group_by(chapter = chapter %/% 2) %>% 
+  summarize(net_sentiment = sum(value))
+
+ggplot(chapter_sentiment) + 
+  aes(x = as.factor(chapter), y = net_sentiment) + 
+  geom_col(fill = "dodgerblue2") +
+  labs(title = "Net Sentiment From Beginning to End of Count of Monte Cristo") + 
+  ylab("Net Sentiment") + 
+  xlab("Index - Each Index Includes Two Chapters") +
+  theme(
+    panel.background = element_rect(fill = "grey95", color = NA),
+    axis.text.y = element_blank(), 
+    axis.ticks.y = element_blank(),
+    plot.title = element_text(hjust = 0.5)
+  )
+```
+
+Looking at the above chart, we can get a feel for how the sentiment changes throughtout the novel. We can see the most negative chapters are chapter 7 and chapter 8. A quick Google search tells me that this is the part of the book where the main character is betrayed and falsely condemned to life in prison as well as his first few days in the prison. We can also see that there is quite a bit of positive sentiment toward the middle of this book, and then, at the latter half of the end, the sentiment begins to shift toward more negativity.  
+
+
+Now let's get a little more adventurous. There is less widely used lexicon called "loughran". This lexicon maps words to the following five words you can see below. 
+
+```{r}
+sent <- get_sentiments("loughran") 
+
+unique(sent$sentiment)
+```
+
+Some of these words are not used frequently, so let's define them: 
+
+1. Litigious: unreasonably prone to go to law to settle disputes.
+2. Superfluous: unnecessary, especially through being more than enough.
+
+Having defined these words, let's explore this lexicon and see what types of words in *The Count of Monte Cristo* are litigious and superfluos. 
+
+```{r fig.height=5, fig.width=12, message=FALSE}
+  comc_index %>% 
+  unnest_tokens(word, text) %>% 
+  inner_join(get_sentiments("loughran")) %>%
+  filter(sentiment %in% c("litigious", "superfluous")) %>%
+  count(word, sentiment, sort = TRUE) %>%
+  group_by(sentiment) %>%
+  top_n(10) %>%
+  ggplot() + 
+  aes(x = reorder(word,desc(n)), y = n) + 
+  geom_col() +
+  facet_grid(~sentiment, scales = "free_x")  + 
+  geom_text(aes(label = n, vjust = -.5)) + 
+  labs(title = "Looking at Words Associated with Litigious and Superfluous") + 
+  ylab("Count") + 
+  xlab("Word") + 
+  theme(
+    panel.background = element_rect(fill = "white", color = NA),
+    axis.text.y = element_blank(), 
+    axis.ticks.y = element_blank(),
+    plot.title = element_text(hjust = 0.5)
+  )
+```
+
+In looking at the chart above, we can see that "litigious" does relate strongly to words that have a legal connotation. In looking at the "superfluous" chart, I'm having a hard time seeing where a breakout of this sentiment would be helpful - perhaps in looking at certain contexts where you are trying to see if a person is being arrogant or prideful in their speech. Perhaps this lexicon is more of a "domain specific" lexicon. A similar and possibly more useful lexicon for looking at emotion is the NRC lexicon. This lexicon contains the following emotions: 
+
+```{r}
+sent <- get_sentiments("nrc") 
+
+unique(sent$sentiment)
+```
+
+You can see already that this lexicon is most likely better for every day use than the loughran lexicon. To conclude our brief analysis of *The Count of Monte Cristo*, let's take a look at which words have the highest counts for each emotion in the NRC lexicon. 
+
+```{r fig.height=8, fig.width=10, message=FALSE}
+  comc_index %>% 
+  unnest_tokens(word, text) %>% 
+  inner_join(get_sentiments("nrc")) %>%
+  count(word, sentiment, sort = TRUE) %>%
+  group_by(sentiment) %>%
+  top_n(10) %>%
+  ggplot() + 
+  aes(x = reorder(word,desc(n)), y = n) + 
+  geom_col() +
+  facet_wrap(~sentiment, ncol = 2, scales = "free_x")  + 
+  geom_text(aes(label = n, vjust = -.5)) + 
+  labs(title = "Looking at Words Associated with Litigious and Superfluous") + 
+  ylab("Count") + 
+  xlab("Word") + 
+  theme(
+    panel.background = element_rect(fill = "white", color = NA),
+    axis.text.y = element_blank(), 
+    axis.ticks.y = element_blank(),
+    plot.title = element_text(hjust = 0.5)
+  )
+```
+
+In looking at the above charts, you can get a good feel for which words tie to which emotions. Another thing that we can see is that our lexicon is picking up the word "count" probably as a term of trust as in "you can count on me". However, we know that the title of our book is *The Count of Monte Cristo* and that probably every time the main character is addressed, he is called Count, which is definitely skewing our analysis here. Were we to extend this, we would want to use an `anti_join()` to remove the word "count" from this analysis. 
+
+
+## Conclusion
+
+Sentiment analysis *can* be incredibly powerful if done correctly. In order to have a powerful story to tell about the text you are analyzing, you need to make sure you are asking the right questions about the text. By this I mean, are you seeing how positive or negative a text is? Or are you trying to see what emotions are contained within your text? Or are you looking for something else? Answering these questions will help you answer the most important question of you analysis: Which lexicon should I use?
+
+Selecting the proper lexicon will make or break your analysis. It is important to spend the proper time understanding different strengths and weaknesses of each lexicon and then doing some exploratory data analysis using several different lexicons to make sure you select the right one to answer the questions you have asked. Additionally, you will want to go through and check the top words that are contributing to your sentiment to make sure you don't have false positives, such as in our "count" example above. 
