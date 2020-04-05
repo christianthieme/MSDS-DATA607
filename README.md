@@ -32,3 +32,6 @@ http://rpubs.com/christianthieme/590344
 
 9. Week 9 Tidyverse Create assignment - Using Purrr Map() - Lose the For Loop:
 http://rpubs.com/christianthieme/589762
+
+10. Week 10 Assignment - Sentiment Analysis: 
+https://rpubs.com/christianthieme/594892
