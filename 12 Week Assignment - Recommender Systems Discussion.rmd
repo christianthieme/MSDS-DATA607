@@ -1,0 +1,113 @@
+---
+title: "Recommender Systems Analysis"
+subtitle: "Udemy's Recommender Engine"
+author: "Christian Thieme"
+date: "4.13.2020"
+output: 
+  rmarkdown::html_document:
+    theme: "readable"
+---
+
+## Introduction
+
+E-Learning is an industry that has seen tremendous growth for the past decade. Continuing education, even past undergraduate and graduate degrees are now the norm for many vocations - particularly in the technology field. With the rapid rise and shifts in technologies, it is important to constantly be learning and experimenting to keep skills up-to-date and marketable. 
+
+One of the leaders in this space is [Udemy.com](https://www.udemy.com/):
+
+![](C:/Users/chris/OneDrive/Master Of Data Science - CUNY/Spring 2020/DATA607/Week 12 - Recommender Systems/udemyjpg.jpg)
+
+> *"Udemy is an online learning platform aimed at professional adults and students, developed in May 2010. As of Jan 2020, the platform had more than 50 million students and 57,000 instructors teaching courses in over 65 languages. There have been over 295 million course enrollments." - Wikipedia. *
+
+Udemy has an incredible breadth of courses available on its site. You can learn anything from software engineering to wood working and all classes that are taught by professionals in their industry of expertise. The site uses the same approach as Amazon, utilizing a five-star rating system as well as showing how many people have rated a course. This gives buyers confidence knowing that they can spend $10-15 dollars on a course and that they won't be wasting their money. 
+
+While Udemy does a great job providing a marketplace for fantastic content, it's recommendation engine for suggesting courses is only living up to half of its potential. We will explore this in the sections below. 
+
+***
+
+## Scenario Analysis
+
+Scenario analysis is a common "three question" framework used to make sure that user experience is being considered in the design process. We will analyze Udemy's platform utilizing this framework: 
+
+![Source: Andy Catlin - DATA607 Course](C:/Users/chris/OneDrive/Master Of Data Science - CUNY/Spring 2020/DATA607/Week 12 - Recommender Systems/scenario_design.jpg)
+
+ 
+#### Who are your target users? 
+
+The target users are people, primarily students and adults, that are looking to learn or improve upon a topic of interest. There is and should be a distinction between these different types of users. One type of user is exploring a new topic of interest, and the other is looking to improve a pre-existing skill or base of knowledge. Catering to these two types of individuals will be different. 
+
+#### What are their key goals? 
+
+User Type I: Exploring a new topic of interest: 
+
+* The main goal of User Type I is to find a high quality course at a reasonable price, that matches their topic of interest, is at an introductory or beginner level, and matches the breadth and depth that they wish to venture into the topic. 
+
+User Type II: Improving a pre-existing skill or base of knowledge:  
+
+* The main goal of User Type II is to find a high quality course at a reasonable price, that matches the skill they wish to improve or the base of knowledge they wish to increase, is at an intermediate or advanced level, and matches the breadth and depth that they wish to continue their learning in.
+
+#### How can you help them accomplish those goals? 
+
+* User Type I: Based on a user's input into a search field, a recommendation engine should show courses that match the user's topic of interest at a broad level. For example if a user typed "Python" into the search input field becaues they were interested in learning how to program in Python, courses about Python would display. The order of the display to the user matters. Items that are highly rated should be displayed first with a higher weighted preference given to courses that are highly rated from many user ratings. However, some amount of highly rated courses with lower amounts of user ratings should be shown as well to give these courses the opportunity to be selected. As the user interacts with the page of possible courses, the recommender engine should resond. For example, if the user clicks into a course called "Introduction to Python for Data Analysis", additional recommendations should then be shown on the current page with this new information about the granularity of the user's interests (Introductory courses, Python as it relates to Data Analysis), while not removing the previous search results at the "Python" level from the initial search page incase the user decides they are not interested in learning Python for data analysis. If a user is signed in, these searches should be stored and used to send emails to this individual with courses similar to the ones they looked at or when a sale occurs. 
+
+* User Type II: Here there are really two ways to break this user type out: Users who have not purchased a course on the site before, and users who have. 
+  + Users who have not purchased anything on the site before: These users would follow a similar pattern as described above, however, as they began to click on courses marked as "Intermediate" or "Advanced", the current **AND** initial page should change to display courses that match the desired difficulty they are looking for. 
+  + Users who have purchased a course on the site before: the recommendation engine should utilize their search history, purchase history, and course history (seeing how far along they are in taking courses they've purchased) and then suggest items that were the next step in the progression of their learning. So for example, if a user purchased "Introduction to Photography", the engine might recommend a course entitled "Intermediate Photography" as opposed to recommending another introductory course.  
+  
+For all user types, if the user has an account, emails should be sent weekly with suggestions based on criteria described above. 
+
+## Udemy's Current Recommendation Engine
+
+While not a lot of information is available about the specific technical details surrounding the recommendation engine (i.e. type of algorithm used, etc.), a recent job posting from Udemy for a software engineer in their recommendations team does say that they use both "batch" (e.g. data pipelines) and "streaming" (e.g. feature computation in real-time) components in their engine, as well as online components (e.g.microservices to serve personlaized recommendations). From this we gather that they have the ability to both use historical data (batches) as well as real-time data (streams) to perform recommendations and to suggest those to the user through their online components in real-time.   
+
+For first-time users: 
+
+* When a user types a topic into the search field, they are presented with a page showing listings that match generally with the input they provided. In addition, it looks like the page is sorted showing the courses with both a high user rating and high amounts of user ratings. 
+
+![](C:/Users/chris/OneDrive/Master Of Data Science - CUNY/Spring 2020/DATA607/Week 12 - Recommender Systems/python.jpg)
+
+* If a user clicks into a link of interest (using the first link above as an example) and scrolls down halfway through the page, there is are two sections called "Students also bought" and "Frequently Bought Together" that show additonal classes that other users have bought in conjunction with the class you are looking at: 
+
+![](C:/Users/chris/OneDrive/Master Of Data Science - CUNY/Spring 2020/DATA607/Week 12 - Recommender Systems/python_other.jpg)
+
+Based on this, it appears that their initial recommendation engine uses a user's input to return suggestions at a broad level, perhaps based on text in the title, description, syllabus, etc. However, once you click in to a class, it appears that the engine looks more to historical data of what other users who have purchased this class have also purchased. 
+
+For a user who has made previous purchases: 
+
+* In typing Python into the search input, it appears that the same results are shown as for the user who has entered the site and signed in. 
+
+![](C:/Users/chris/OneDrive/Master Of Data Science - CUNY/Spring 2020/DATA607/Week 12 - Recommender Systems/python_prev_user.jpg)
+
+This is surprising, because one would guess that Udemy would use historical purchases and previously viewed courses to tailor this page for the individual user (similar to what Amazon does where each page is dynamically generated specifically for the person viewing the page). For example, the user who was signed in for the screen shot above had already purchased "The Modern Python 3 Bootcamp", "Python for Time Series Data Analysis", and "Recommender Systems and Deep Learning in Python". We will discuss this in greater depth in the "Suggestions" section below.  
+
+* Additionally, if a user has an account, they will receive emails utilizing both the courses they are enrolled in as well as topics they have searched for to provide suggestions: 
+
+![](C:/Users/chris/OneDrive/Master Of Data Science - CUNY/Spring 2020/DATA607/Week 12 - Recommender Systems/email.jpg)
+
+The email recommendations look to be more tailored to the individual user than to the recommendations that are shown real time when a user is navigating through the site. 
+
+## Suggestions
+
+It is clear that while Udemy provides an incredible, low-cost platform to learn almost anything, they have a few areas where they could stand to brush up. I would recommend the following: 
+
+1. When a new user (someone who is not signed in) clicks into a course of interest, Udemy should store that data for the session, and when the user navigates back to the original search page, they should see a section off to the far right or left called "suggestions based on your recent search history" that would give suggestions of other courses similar to the courses they have viewed. If a user clicks into three courses about python and data analysis, it seems like a missed opportunity if something on the original search page does not change or update to reflect the actual topic they are interested in. 
+
+![](C:/Users/chris/OneDrive/Master Of Data Science - CUNY/Spring 2020/DATA607/Week 12 - Recommender Systems/suggestions.jpg)
+
+2. When a user with an account (someone who is signed in) types in a topic of interest, they should not see the same page as someone would see if they were not signed in. The suggestions should be tailored based off of the history of things they have previously viewed and courses they've already purchased. So in the example above where the signed in user had already purchased "The Modern Python 3 Bootcamp", "Python for Time Series Data Analysis", and "Recommender Systems and Deep Learning in Python", their experience would have been completely tailored, perhaps showing Intermediate courses on Time Series Analysis or more advanced Python classes as opposed to the same results that Joe Shmoe off the road would get if they were to type "Python" into the search bar. 
+
+3. Work to align recommendation system from the emailing system to what is shown in real-time. It is very clear that Udemy has the ability and data to show suggested courses based on prior searches and classes that have previously been taken, however, for whatever reason, those recommendations are not given real-time when the user is logged-in and searching for courses, but are instead sent later in an email. Maybe the real-time calculations for their algorithms are not quite there, however, I think this is definitely an area of improvement. While I do see the value in suggesting courses that other people who have purchased the course have also purchased, I think it would be valuable to also have a responsive environment that dynamically updated the search page based on the users current browsing history as well as previoulsy purchased courses. 
+
+## Conclusion
+
+Udemy has a great platfrom and has some areas where their recommendation engine does a phenomenal job, such as in their emails. However, it is clear that they may be missing out on potential revenue by not tailoring their results in real-time to both new visitors and previous purchasers. Udemy should work to align their real-time recommendation engine with the engine that supports their emailing system to help capture some of this revenue.  
+
+
+
+
+
+
+
+
+
+
+
