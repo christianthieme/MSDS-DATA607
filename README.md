@@ -35,3 +35,6 @@ http://rpubs.com/christianthieme/589762
 
 10. Week 10 Assignment - Sentiment Analysis: 
 https://rpubs.com/christianthieme/594892
+
+11. Week 12 Assignment - Recommender Systems Analysis: 
+https://rpubs.com/christianthieme/599308
