@@ -1,0 +1,443 @@
+---
+title: "Document Classification"
+subtitle: "Using Machine Learning to Build a SPAM Predictor"
+author: "Christian Thieme"
+date: "4.20.2020"
+output:
+  rmarkdown::html_document:
+    theme: "readable"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Introduction
+
+The purpose of this project is to build a classification model that can accurately classify spam email messages from ham email messages. We will do this by using pre-classified email messages to build a training set and then build a predictive model to forecast unseen email messages as either spam or ham. In order to build this predictive model, we'll also need to rely heavily on several text mining techniques which will be demonstrated below. We'll begin this project by loading the necessary libraries. 
+
+### Loading Libraries
+
+```{r message=FALSE, warning=FALSE}
+library(readr)
+library(tidyverse)
+library(tidytext)
+library(ggplot2)
+library(tm)
+library(caret)
+library(tidymodels)
+```
+
+
+### Reading in the data and combining
+
+We will take our data set from several locations, the first of which is a repository of 6,046 emails that I have downloaded from [here](https://spamassassin.apache.org/old/publiccorpus/) as individual files. We will need to read in each file from it’s location on my computer and then create a dataframe with one email per row. We'll start by getting the file path to each file and storing it as a list.
+
+```{r}
+ham_file_path <- "C:/Users/chris/OneDrive/Master Of Data Science - CUNY/Spring 2020/DATA607/Week 13-Classification/SPAMHAM/ham"
+spam_file_path <- "C:/Users/chris/OneDrive/Master Of Data Science - CUNY/Spring 2020/DATA607/Week 13-Classification/SPAMHAM/spam"
+
+ham <- list.files(ham_file_path, full.names = TRUE)
+spam <- list.files(spam_file_path, full.names = TRUE)
+
+```
+
+Next, we will build a function that takes in a file path, reads the file, and removes the new line characters. We will use purrr::map() to apply this function to our list of file paths. Using map allows us to take advantage of vecotorization as opposed to using an iterrating "if" statement. Once we have our data frame, we will rename the "value" column to "text" as well as add an "indicator" variable labeling the data frame as either containing SPAM or HAM (we will run this function twice, once over a set of Ham files, and again over a set of Spam files). Lastly, we'll combine both of the data frames together. 
+
+```{r message=FALSE, warning=FALSE}
+
+convert_line <- function(path) {
+  file <- read_file(path) %>% 
+  str_replace_all("\\\n+|\\n|_+", "")
+    }
+ 
+  spam_list <- purrr::map(spam, convert_line)
+  spam_df  <- as.tibble(unlist(spam_list)) %>%
+    rename(text = value) %>%
+    mutate(indicator = 1)
+  
+  ham_list <- purrr::map(ham, convert_line)
+  ham_df  <- as.tibble(unlist(ham_list)) %>%
+    rename(text = value) %>%
+    mutate(indicator = 0) 
+  
+  spam_ham <- rbind(spam_df, ham_df)
+
+#readr::read_csv("C:/Users/chris/OneDrive/Master Of Data Science - CUNY/Spring 2020/DATA607/Week 13-Classification/SPAMHAM/easy_ham/00001.7c53336b37003a9286aba55d2945844c")
+```
+
+
+Let's take a look at the first few rows of our data: 
+
+```{r}
+head(spam_ham)
+```
+
+Looking at the rows above, we can see there is going to be a lot of garbage in each of these emails (web addresses, dates, digits). While attempting some data extraction, there are quite a few instances where the output of the emails vary significantly from email to email, as such, an attempt to extract the "Content" or some other attribute is returning many null values. As such, we'll work with the email string in its entirety as to not lose possibly informative data from our data set. 
+
+Let's see how many SPAM emails we have an how many HAM emails: 
+```{r}
+spam_ham %>% count(indicator)
+```
+
+It looks like our data set is ~30% spam. 
+
+Total dimensions for our data frame: 
+```{r}
+dim(spam_ham)
+```
+
+In an effort to make our model more robust and so our entire training data set isn't from one source, let's bring in one more data set that we can use in our training and prediction. This data set is from Kaggle, and can be downloaded [here](https://www.kaggle.com/balakishan77/spam-or-ham-email-classification). Below, I have downloaded the file and put it in my GitHub. 
+
+```{r message=FALSE, warning=FALSE}
+test_data <- readr::read_csv("https://raw.githubusercontent.com/christianthieme/MSDS-DATA607/master/SpamHamTestData.csv")
+```
+
+Again, let's take look at the first few rows of data: 
+
+```{r}
+head(test_data)
+```
+
+Looking at the first few rows of this data, we can see that we'll need to rename and reorder some columns as well as get rid of a few blank columns that were read in. 
+
+```{r}
+test_data <- test_data %>% 
+  rename(indicator = v1, text = v2) %>%
+  select(text, indicator)
+head(test_data)
+```
+  
+After our transformations, the dimensions of the data set are: 
+
+```{r}
+dim(test_data)
+```
+
+Our new data set will add 5,726 emails to our 6,046, bringing our total to 11,772.
+  
+In this additional data set, let's see how many spam and ham emails we have: 
+
+```{r}
+test_data %>% 
+  count(indicator)
+```
+
+Now that we've cleaned both data sets let's combine them. 
+
+```{r}
+spam_ham_final <- rbind(spam_ham, test_data)
+```
+
+
+Now, because of the way the original data was stored (folder of ham and a seperate folder of spam) and read-in, all of the spam emails are at the first 30% of our data set and the ham emails are the last 70%. Let's randomize our data set so we aren't introducing bias to our model. Here's well use `sample()` to shuffle our dat set and use a seed number so it is reproducible. 
+```{r}
+set.seed(42)
+
+rows <- sample(nrow(spam_ham_final))
+spam_ham_final <- spam_ham_final[rows,]
+```
+
+Before building a model, let's do some analysis on this data to see if there is a certain method that makes more sense when implementing our model (tf vs tf-idf).
+
+## Analysis
+
+Now that we've combined the data set, let's do some analysis. We'll start by creating some new feature columns. Let's create a few new columns: 
+
+1. text_count: how many words are in the email 
+2. char_count: how many alphabet characters are in the email
+3. digit_count: how many digits/numeric values are in the email
+4. non_count: how many non-alphanumeric characters are in the email
+5. total_char_count: counting the total number of chars (sum of 2 through 4 above)
+6. char_perc: percentage of alpha characters out of total characters
+7. digit_perc: percentage of numeric characters out of total characters
+8. non_per: percentage of non-alphanumeric characters out of total
+
+```{r}
+analysis <- spam_ham_final %>% 
+  mutate(text_count = unlist(map(str_split(spam_ham_final$text, " "), length))) %>%
+  mutate(char_count = str_count(spam_ham_final$text, "[A-Za-z]")) %>%
+  mutate(digit_count = str_count(spam_ham_final$text, "[0-9]")) %>%
+  mutate(non_count = str_count(spam_ham_final$text, "[^[:alnum:]]")) %>%
+  mutate(total_char_count = char_count + digit_count + non_count) %>%
+  mutate(char_perc = char_count / total_char_count,
+          digit_perc = digit_count / total_char_count, 
+          non_per = non_count / total_char_count)
+head(analysis)
+```
+
+Now that, we've created these columns, let's see if we can identify any differences between spam and ham. 
+
+```{r}
+summary(analysis %>% 
+  filter(indicator == 0))
+```
+
+```{r}
+summary(analysis %>% 
+  filter(indicator == 1))
+```
+
+Looking at the two above summaries (indicator = 0 is ham and indicator = 1 is spam), it appears that there is a noticable difference in word count, digit count, and digit percentage between spam and ham, with spam having more words and digits on average.  
+
+Looking at the summary is all well and good, but let's see if we can visualize some of these differences with density plots. 
+
+```{r}
+  ggplot(analysis) + 
+  aes(x = text_count, fill = as.factor(indicator)) + 
+  geom_density(alpha = 0.4) + 
+  labs(title = "Spam vs Ham - Text Count") + 
+  xlim(0,3000) 
+```
+
+Looking at the above density plot, you can see clearly that there is a slight difference in the distribution of text count between spam (1) and ham (0). It appears that spam, on average, has higher text count than ham. 
+
+Now let's turn our attention to character count: 
+
+```{r}
+  ggplot(analysis) + 
+  aes(x = char_count, fill = as.factor(indicator)) + 
+  geom_density(alpha = 0.4) + 
+  labs(title = "Spam vs Ham - Character Count") + 
+  xlim(0,10000) 
+```
+
+This is a tricky chart. From our summaries above, we know that spam does have a higher character count than ham, but not by much. However, we are seeing something interesting on this chart. It appears that at the lower end of character count, ham tends to have higher number of characters than spam, however as we move to higher counts on the x-axis, the trend switches and spam has higher counts. This is why it is important to create a chart. Just from the summaries above, we wouldn't have been able to tell that while the numbers above are accurate, they don't tell the whole story. 
+
+I'll show the remainder of the charts for the variables we created below. 
+
+```{r}
+  ggplot(analysis) + 
+  aes(x = char_perc, fill = as.factor(indicator)) + 
+  labs(title = "Spam vs Ham - Character Percentage") + 
+  geom_density(alpha = 0.4)
+```
+
+```{r}
+  ggplot(analysis) + 
+  aes(x = digit_count, fill = as.factor(indicator)) + 
+  geom_density(alpha = 0.4) + 
+  labs(title = "Spam vs Ham - Digit Count") + 
+  xlim(0,2500) 
+```
+
+```{r}
+  ggplot(analysis) + 
+  aes(x = digit_perc, fill = as.factor(indicator)) + 
+  labs(title = "Spam vs Ham - Digit Percentage") + 
+  geom_density(alpha = 0.4)
+```
+
+```{r}
+  ggplot(analysis) + 
+  aes(x = non_count, fill = as.factor(indicator)) + 
+  geom_density(alpha = 0.4) + 
+  labs(title = "Spam vs Ham - Non-AlphaNumeric Count") + 
+  xlim(0,7500) 
+```
+
+```{r}
+  ggplot(analysis) + 
+  aes(x = non_per, fill = as.factor(indicator)) + 
+  labs(title = "Spam vs Ham - Non-AlphaNumeric Percentage") + 
+  geom_density(alpha = 0.4)
+```
+
+In looking at the above charts, we can clearly see there are some differences between spam and ham when it word count, character count (alpha & numeric), as well as non-character counts. It may make sense to add these variables to our data set to use as predictors. 
+
+### Text Analysis
+
+Having looked the some quantitative data, let's now turn our attention to the text in this data set. First let's create a row number in our data set that will be used frequently for reference going forward. 
+
+```{r}
+spam_ham_final <- spam_ham_final %>% 
+  mutate(row_num = row_number())
+head(spam_ham_final)
+```
+
+Now that our data set is combined, let's take a look at the final breakout of ham vs spam: 
+
+```{r}
+spam_ham_final %>% 
+  count(indicator)
+```
+
+It looks like our percentage has dropped a little with the addition of the new data set above and our data set now is about 27% spam. 
+
+Many critical components of text analysis rely on our ability to look at individual words. To do that we'll use `unnest_tokens` from TidyText break each word in to its own row. We'll also change the case of every word to lowercase, remove all stop words (it, as, the, etc.), and extract the word stem (thankful --> thank). 
+
+```{r}
+tidy_spam_ham <- spam_ham_final %>% 
+  unnest_tokens(output = word, input = text) %>% 
+  mutate(word = tolower(word)) %>%
+  anti_join(stop_words) %>%
+  mutate(word = SnowballC::wordStem(word))
+tidy_spam_ham
+```
+
+Above, we can see this has really lengthened our data set. We are now working with almost 4M rows of data. 
+
+Let's see if we can get a feel for the difference between spam and ham and which words are used most frequently in each. 
+
+```{r}
+#looking at top words in ham
+tidy_spam_ham %>% 
+  filter(indicator == 0) %>%
+  count(indicator, word, sort = TRUE) %>%
+  top_n(15, n)
+```
+
+```{r}
+#looking at top words in spam
+tidy_spam_ham %>% 
+  filter(indicator == 1) %>%
+  count(indicator, word, sort = TRUE) %>%
+  top_n(15, n)
+```
+
+Looking at the above, it looks like there isn't anything tremendously meainingful that we can glean from this word count exercise. It appears that many of our highest word count items are actually the header or html sections of the email. While this particular exercise wasn't terribly fruitful, what we do learn is that perhaps word count or term-frequency, will not be the best approach for this analysis as we will have many similar words between both sets because of the headers used in the emails. 
+
+Let's now change directions and look at term-frequency inverse document frequency, which helps us measure how "important" a term is in a corpus. We'll start by looking first at spam:  
+
+```{r}
+spam_tf_idf <- tidy_spam_ham %>% 
+  filter(indicator == 1) %>%
+  count(row_num, word, sort = TRUE) %>%
+   bind_tf_idf(term = word, document = row_num, n = n) %>%
+   arrange(desc(tf_idf))
+spam_tf_idf
+```
+
+```{r}
+  spam_tf_idf %>% 
+  top_n(15, wt = tf_idf) %>%
+  ggplot() + 
+  aes(x= reorder(word, tf_idf), y = tf_idf) + 
+  geom_col() + 
+  coord_flip()
+```
+
+In looking at the above output, while there is still some garble (i.e. 126432211), there are some subtleties here. Words like Jif and Oreo may indicate some type of advertising, while words like striptease look like typical spam garbage. 
+
+Now let's look at ham: 
+
+```{r}
+ham_tf_idf <- tidy_spam_ham %>% 
+  filter(indicator == 0) %>%
+  count(row_num, word, sort = TRUE) %>%
+   bind_tf_idf(term = word, document = row_num, n = n) %>%
+   arrange(desc(tf_idf))
+ham_tf_idf
+```
+
+```{r}
+  ham_tf_idf %>% 
+  top_n(15, wt = tf_idf) %>%
+  ggplot() + 
+  aes(x= reorder(word, tf_idf), y = tf_idf) + 
+  geom_col() + 
+  coord_flip()
+```
+
+This output is completely different than what we saw above for spam. for the most part, these look like normal words and names. In looking at the difference between term frequency (term count) and term inverse document frequency, we can make the educated assumption that tf-idf is going to be more helpful to us in a predictive model. 
+
+### The model
+
+In order to build a predictive model, we'll need to get our data in a format that is digestible. To do this, we'll create a document term matrix, which will take our current data set which is one row per word and turn it into one row per email, with every column being a word in that email. We'll weight those values with tf-idf. 
+
+```{r}
+dtm_spam_ham <- tidy_spam_ham %>%
+  count(row_num, word) %>%
+  cast_dtm(document = row_num, term = word, value = n, weighting = tm::weightTfIdf)
+dtm_spam_ham
+```
+
+In looking at the above output, our data set has 11,772 ros and 221,798 columns. This is pretty crazy, and too many columns to work with so we'll want to remove some of the sparse columns (words), meaning remove those words that don't occur accross many of the documents. Too many columns in our data set will add to the complexity of our model as well as substantially add to the time it takes to run. 
+
+We will set our sparcity to .98 meaning we will remove words that are missing from 98% of the documents. 
+
+```{r message=FALSE, warning=FALSE}
+dtm_s_h <- tm::removeSparseTerms(dtm_spam_ham, sparse = .98)
+dtm_s_h
+```
+
+In looking at the above, output we've trimmed our data set down to 1,123 columns. This will be a bit easier for our model to chew. 
+
+```{r}
+matrix <- as.matrix(dtm_s_h)
+full_df <- as.data.frame(matrix)
+dim(full_df)
+```
+
+Now that our data set is cleaned and ready to go, we're ready to split our data set into a training and testing data set. We can do this with tidymodel's `initial_split` function. We'll break the data set into two chunks: 75% train and 25% test. 
+
+```{r}
+full_df_split <- initial_split(full_df, prop = 3/4)
+
+train_df <- training(full_df_split)
+test_df <- testing(full_df_split)
+```
+
+
+Now that we've split the data, let's take a look at the dimension of each data set: 
+
+```{r}
+dim(train_df)
+dim(test_df)
+```
+
+Now, let's build our model. Let's use a random forest model (ranger is a faster application of random forest) and use cross validation on our training set with 3-folds. We'll also add the importance argument so we can see the importance of each variable when the model is finished. 
+
+```{r}
+model <- train(
+  x = train_df,
+  y = as.factor(spam_ham_final[rownames(train_df),]$indicator), 
+  method = "ranger", 
+   num.trees = 200,
+  importance = "impurity",
+  trControl = trainControl(method = "cv", 
+  number = 3,
+  verboseIter = TRUE
+  )
+)
+
+model
+```
+
+Above, we can see the output of the model. It looks like on our training data, our accuracy for the best model was ~97%. 
+
+Let's visualize the different tunning parameters the model went through and it's accuracy using `ggplot`: 
+
+```{r}
+ggplot(model)
+```
+
+Because we used importance = "impurity" we can also look at the individual predictor's strengths. This will show us the most predictive attributes: 
+
+```{r}
+varImp(model, scale = TRUE)$importance %>% 
+  rownames_to_column() %>% 
+  arrange(-Overall) %>% 
+  top_n(25) %>%
+  ggplot() + 
+  aes(x = reorder(rowname, Overall), y = Overall) +
+  geom_col() + 
+  labs(title = "Most Predictive Words") +
+  coord_flip()
+```
+
+Looking at teh above, it looks like some obvious words like "click" and "offer" probably indicate spam pretty easily. Another thing to note is that there appear to be quite a few HTML terms here. Perhaps HTML terms in an email often indicate spam and people sending email back and forth to each other often don't include HTML tags. 
+
+Finally, let's use our model to make prediction on our test data set. 
+
+```{r}
+predictions <- predict(model, test_df)
+confusionMatrix(predictions, as.factor(spam_ham_final[rownames(test_df),]$indicator))
+```
+  
+It looks like our model was 97.93% accurate in correctly classifying ham from spam. If we look at the confusion matrix in the model output, it looks like the model incorrectly labeled 35 ham invoices as spam and 26 spam invoices as ham. However, it correctly categorized 2,882 emails. 
+
+## Conclusion
+
+We were able to build an accurate model to classify spam from ham using the random forest model. As the model was quite accurate, exploration of other models was not done, however, to extend this, additional models should be tested, especially models with a particular strength in classification such as support vector machine (SVM). Additionally, there are some additional pre-processing text tidying we could do to potentially make our data more accurate as well such as using a combination of text frequency and tf-idf or using a different weighting method when creating our document term matrix. 
+
