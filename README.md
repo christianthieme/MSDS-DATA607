@@ -38,3 +38,6 @@ https://rpubs.com/christianthieme/594892
 
 11. Week 12 Assignment - Recommender Systems Analysis: 
 https://rpubs.com/christianthieme/599308
+
+12. Week 13 Project 4: Document Classification - Using Machine Learning to Build a SPAM Predictor:
+https://rpubs.com/christianthieme/604887
