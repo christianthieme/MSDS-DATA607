@@ -41,3 +41,5 @@ https://rpubs.com/christianthieme/599308
 
 12. Week 13 Project 4: Document Classification - Using Machine Learning to Build a SPAM Predictor:
 https://rpubs.com/christianthieme/604887
+
+13. [Final Project: Time Series Analysis in Python](https://nbviewer.jupyter.org/github/christianthieme/MSDS-DATA607/blob/master/Final%20Project%20-%20Time%20Series%20Analysis%20in%20Python/DATA607%20Final%20Project%20-%20Christian%20Thieme.ipynb)
